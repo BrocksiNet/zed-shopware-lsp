@@ -327,10 +327,28 @@ block", which the script surfaces as-is.
 
 Two deliberate gaps. The `entity-definition` scaffold is a multi-step
 bootstrap/preview/apply workflow, so the script points you at the
-`shopware_entity_schema_*` MCP tools instead. And `twig-form-fields` is
-implemented against the documented request shape but unverified: the server's
-Twig form inference returned no candidates for any fixture I could build, so
-treat it as untested.
+`shopware_entity_schema_*` MCP tools instead.
+
+And `twig-form-fields` stays unverified. It targets **Symfony form rendering**,
+`{{ form_row(form.name) }}`, which Shopware does not use anywhere: no
+`form_row`, `form_widget` or `form_start` appears under `src/`. Administration
+templates such as `sw-bulk-edit-customer.html.twig` are Vue components written
+in Twig syntax, not Symfony forms, so an empty result there is correct.
+
+Against a purpose-built Symfony fixture the chain gets three of four steps:
+
+| Step | Result |
+|---|---|
+| Template variable tracked from the controller | works |
+| Variable type resolved | `Symfony\Component\Form\FormView` |
+| Forms index knows the FormType and its `dataClass` | works |
+| Variable linked to that FormType (`formTypes`) | **never populates** |
+
+Without that last link `candidates` returns `{"forms": []}`. Tried with the
+form in a local variable and inlined, with and without Symfony vendor stubs,
+and with the type registered as a `form.type` tagged service. Verifying it
+needs a real Symfony application; the sibling `form-fields` action, which
+works off the PHP FormType directly, is verified and unaffected.
 
 
 ## Development
