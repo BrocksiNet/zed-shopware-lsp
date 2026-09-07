@@ -32,3 +32,5 @@ languages = [
 "TSX" = "typescriptreact"
 "SCSS" = "scss"
 "Vue.js" = "vue"
+
+[context_servers.shopware-lsp]

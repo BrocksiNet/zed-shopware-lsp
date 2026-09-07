@@ -3,9 +3,9 @@ use std::fs;
 use zed_extension_api::{
     self as zed,
     http_client::{HttpMethod, HttpRequest, RedirectPolicy},
-    settings::LspSettings,
-    Architecture, DownloadedFileType, LanguageServerId, LanguageServerInstallationStatus, Os,
-    Result,
+    settings::{ContextServerSettings, LspSettings},
+    Architecture, ContextServerConfiguration, ContextServerId, DownloadedFileType,
+    LanguageServerId, LanguageServerInstallationStatus, Os, Project, Result,
 };
 
 const SERVER_NAME: &str = "shopware-lsp";
@@ -19,6 +19,10 @@ struct ShopwareLspExtension {
     /// Resolved once per extension process so a settings reload does not send
     /// another request to Open VSX.
     cached_binary_path: Option<String>,
+    /// Remembered from the language server, which is the only hook that gets a
+    /// `Worktree`. `Project` exposes worktree IDs but no paths, so this is the
+    /// only way the MCP server can learn the project root.
+    cached_worktree_root: Option<String>,
 }
 
 /// Where the binary lives inside the downloaded `.vsix`, which is a plain zip.
@@ -73,7 +77,10 @@ impl ShopwareLspExtension {
     }
 
     /// Download the server on demand, reusing an existing copy when possible.
-    fn download_server(&mut self, language_server_id: &LanguageServerId) -> Result<String> {
+    ///
+    /// `status_id` is absent when the MCP server triggers the download, because
+    /// installation status is a language-server-only concept in Zed.
+    fn download_server(&mut self, status_id: Option<&LanguageServerId>) -> Result<String> {
         if let Some(path) = &self.cached_binary_path {
             if fs::metadata(path)
                 .map(|stat| stat.is_file())
@@ -83,10 +90,12 @@ impl ShopwareLspExtension {
             }
         }
 
-        zed::set_language_server_installation_status(
-            language_server_id,
-            &LanguageServerInstallationStatus::CheckingForUpdate,
-        );
+        if let Some(id) = status_id {
+            zed::set_language_server_installation_status(
+                id,
+                &LanguageServerInstallationStatus::CheckingForUpdate,
+            );
+        }
 
         let target = open_vsx_target()?;
         let (version, url) = Self::latest_release(target)?;
@@ -98,10 +107,12 @@ impl ShopwareLspExtension {
             .map(|stat| stat.is_file())
             .unwrap_or(false)
         {
-            zed::set_language_server_installation_status(
-                language_server_id,
-                &LanguageServerInstallationStatus::Downloading,
-            );
+            if let Some(id) = status_id {
+                zed::set_language_server_installation_status(
+                    id,
+                    &LanguageServerInstallationStatus::Downloading,
+                );
+            }
 
             zed::download_file(&url, &version_dir, DownloadedFileType::Zip).map_err(|err| {
                 format!("failed to download {SERVER_NAME} {version} for {target}: {err}")
@@ -111,10 +122,12 @@ impl ShopwareLspExtension {
             Self::remove_other_versions(&version_dir);
         }
 
-        zed::set_language_server_installation_status(
-            language_server_id,
-            &LanguageServerInstallationStatus::None,
-        );
+        if let Some(id) = status_id {
+            zed::set_language_server_installation_status(
+                id,
+                &LanguageServerInstallationStatus::None,
+            );
+        }
 
         self.cached_binary_path = Some(binary.clone());
         Ok(binary)
@@ -151,14 +164,16 @@ impl ShopwareLspExtension {
             .and_then(|settings| settings.binary)
             .and_then(|binary| binary.path)
         {
+            self.cached_binary_path = Some(path.clone());
             return Ok(path);
         }
 
         if let Some(path) = worktree.which(SERVER_NAME) {
+            self.cached_binary_path = Some(path.clone());
             return Ok(path);
         }
 
-        self.download_server(language_server_id)
+        self.download_server(Some(language_server_id))
     }
 }
 
@@ -166,6 +181,7 @@ impl zed::Extension for ShopwareLspExtension {
     fn new() -> Self {
         Self {
             cached_binary_path: None,
+            cached_worktree_root: None,
         }
     }
 
@@ -174,6 +190,8 @@ impl zed::Extension for ShopwareLspExtension {
         language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
+        self.cached_worktree_root = Some(worktree.root_path());
+
         let arguments = LspSettings::for_worktree(SERVER_NAME, worktree)
             .ok()
             .and_then(|settings| settings.binary)
@@ -208,6 +226,70 @@ impl zed::Extension for ShopwareLspExtension {
         Ok(LspSettings::for_worktree(SERVER_NAME, worktree)
             .ok()
             .and_then(|settings| settings.initialization_options))
+    }
+
+    /// Expose the server's MCP tools to Zed's Agent Panel.
+    ///
+    /// `shopware-lsp mcp` refuses to start outside a Shopware or Symfony
+    /// project, so the root matters. It is taken from the `root` setting first,
+    /// then from whatever the language server reported, and otherwise left to
+    /// the process working directory.
+    fn context_server_command(
+        &mut self,
+        context_server_id: &ContextServerId,
+        project: &Project,
+    ) -> Result<zed::Command> {
+        let settings = ContextServerSettings::for_project(context_server_id.as_ref(), project).ok();
+
+        let command = settings.as_ref().and_then(|s| s.command.as_ref());
+
+        // A full command override bypasses discovery entirely.
+        if let Some(path) = command.and_then(|c| c.path.clone()) {
+            return Ok(zed::Command {
+                command: path,
+                args: command
+                    .and_then(|c| c.arguments.clone())
+                    .unwrap_or_else(|| vec!["mcp".into()]),
+                env: command
+                    .and_then(|c| c.env.clone())
+                    .map(|env| env.into_iter().collect())
+                    .unwrap_or_default(),
+            });
+        }
+
+        let root = settings
+            .as_ref()
+            .and_then(|s| s.settings.as_ref())
+            .and_then(|s| s["root"].as_str())
+            .map(str::to_string)
+            .or_else(|| self.cached_worktree_root.clone());
+
+        // Global flags have to precede the subcommand.
+        let args = match root {
+            Some(root) => vec!["-root".into(), root, "mcp".into()],
+            None => vec!["mcp".into()],
+        };
+
+        Ok(zed::Command {
+            command: self.download_server(None)?,
+            args,
+            env: command
+                .and_then(|c| c.env.clone())
+                .map(|env| env.into_iter().collect())
+                .unwrap_or_default(),
+        })
+    }
+
+    fn context_server_configuration(
+        &mut self,
+        _context_server_id: &ContextServerId,
+        _project: &Project,
+    ) -> Result<Option<ContextServerConfiguration>> {
+        Ok(Some(ContextServerConfiguration {
+            installation_instructions: include_str!("../docs/mcp-instructions.md").to_string(),
+            settings_schema: include_str!("../docs/mcp-settings-schema.json").to_string(),
+            default_settings: "{}\n".to_string(),
+        }))
     }
 }
 

@@ -121,6 +121,38 @@ until that ships in a release, use one of:
     semanticTokens: false
   ```
 
+## Agent Panel tools (MCP)
+
+The extension also registers the server's MCP endpoint as a context server, so
+Zed's Agent Panel gets the same 16 Shopware tools the VS Code extension
+contributes: `shopware_diagnostics`, `shopware_hover`, `shopware_definition`,
+`shopware_references`, `shopware_workspace_symbols`, `shopware_code_actions`,
+`shopware_apply_code_action`, `shopware_scaffold`, `shopware_scaffold_catalog`,
+and the seven `shopware_entity_schema_*` tools.
+
+Nothing to install: it reuses the same binary as the language server.
+
+`shopware-lsp mcp` refuses to start outside a Shopware or Symfony project, and
+Zed's `Project` handle exposes worktree IDs but no paths, so the root is taken
+from the `root` setting first, then from whatever the language server last
+reported, and only then left to the process working directory. Pin it for
+multi-root workspaces:
+
+```json
+{
+  "context_servers": {
+    "shopware-lsp": {
+      "settings": { "root": "/path/to/shopware" }
+    }
+  }
+}
+```
+
+Zed intends to deprecate MCP server extensions in favour of the official MCP
+registry ([zed#59351](https://github.com/zed-industries/zed/issues/59351)). If
+that lands before this is rewritten, the same server still works as a custom
+context server pointed straight at the binary.
+
 ## Limitations
 
 Zed's extension API has 19 hooks and none of them register editor commands, so
