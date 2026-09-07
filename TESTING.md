@@ -123,9 +123,10 @@ server. Re-run `zed: install dev extension` first.
 - [x] Snippets load: typing `sw-config-` in an XML buffer offers all six
       `sw-config-*` entries with their descriptions, and accepting one expands
       it. Confirmed 2026-09-07.
-- [ ] Choice placeholders: `sw-config-element-text` uses the VS Code syntax
-      `${1|text,textarea,password,url|}`. Check whether Zed offers the choices
-      or just inserts the first value.
+- [x] Choice placeholders work. `sw-config-element-text` uses the VS Code
+      syntax `${1|text,textarea,password,url|}` and Zed offers all four as a
+      pick-list, sorted alphabetically rather than in snippet order. Confirmed
+      2026-09-07, so the snippets need no rewriting.
 - [ ] Multi-root workspace: with `context_servers.shopware-lsp.settings.root`
       set, the MCP server targets that root.
 

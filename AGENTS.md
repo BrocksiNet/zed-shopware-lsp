@@ -76,7 +76,7 @@ impossible here.
 | `scripts/inventory.py` | Golden-file gate that reports new or removed upstream surface. |
 | `inventory/snapshot.json` | The accepted upstream surface. Update deliberately, never blindly. |
 | `examples/` | `tasks.json`, `keymap.json`, `settings.json` to copy into a project. |
-| `snippets/` | Ported from upstream `vscode-extension/snippets` (MIT). Zed matches by lowercase language name, so `config-xml.json` is `xml.json` here. |
+| `snippets/` | Ported from upstream `vscode-extension/snippets` (MIT). Zed matches by lowercase language name, so `config-xml.json` is `xml.json` here. VS Code syntax carries over unchanged, including `${1\|a,b\|}` choice placeholders. |
 | `build-server.sh` | Builds the server from a local `shopware-lsp` checkout, for testing unreleased changes. Needs Go and CGO. |
 | `update-server.sh` | Installs the published server into `~/.local/bin`. |
 | `TESTING.md` | The three-layer test plan and the manual Zed checklist. |
