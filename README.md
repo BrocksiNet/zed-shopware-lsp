@@ -174,24 +174,46 @@ context server pointed straight at the binary.
 ## Generator actions as tasks
 
 The generator code actions cannot work from Zed's code-action menu, but the
-features behind them are not lost. Each is backed by a pair of server commands,
-a `.../candidates` query and a `.../generate` call, both reachable over
-`workspace/executeCommand` and the CLI. `scripts/sw-action.py` runs the picker
-in a terminal and inserts the snippet, so a Zed task gives you the same result:
+features behind them are not lost. Each is backed by ordinary server commands,
+reachable over `workspace/executeCommand` and the CLI. `scripts/sw-action.py`
+runs the picker in a terminal and writes the result, so a Zed task gives you
+the same outcome:
 
 ```bash
-cp scripts/sw-action.py /path/to/shopware/.zed/
-cp examples/tasks.json  /path/to/shopware/.zed/
+cp scripts/sw-action.py /path/to/project/.zed/
+cp examples/tasks.json  /path/to/project/.zed/
 ```
 
-Then `task: spawn` → *Shopware: add Twig extends*, or bind a key with the
-snippet in `examples/keymap.json`. It uses `fzf` when installed and falls back
-to a numbered prompt. `examples/tasks.json` also includes file diagnostics and
-a Symfony route dump.
+Then `task: spawn`, or bind keys with `examples/keymap.json`. It uses `fzf`
+when installed and falls back to a numbered prompt.
 
-Covered so far: `twig-extends` and `twig-blocks`. The remaining generators
-follow the same candidates/generate shape and are a table entry each in
-`sw-action.py`.
+| Action | What it does | Status |
+|---|---|---|
+| `twig-extends` | Pick a parent template, insert `{% extends %}` | verified |
+| `twig-blocks` | Pick parent blocks, insert overrides | verified |
+| `form-fields` | Pick fields off the data class, rewrite the FormType | verified |
+| `scaffold` | Any of the server's 24 scaffolds | verified, 23 kinds |
+| `twig-form-fields` | Insert Twig form rows | **unverified** |
+
+`scaffold` covers both families: the `symfony` kinds return a single file, the
+`shopware` kinds a `WorkspaceEdit` that the script applies (including
+multi-file output such as `scheduled-task`, which writes a task and its
+handler). Use `--print` to preview.
+
+Some kinds need an extra option, for example
+`--option 'event=Shopware\Core\...\EntityWrittenEvent'` for
+`event-listener`. Known keys: `author`, `category`, `color`, `description`,
+`event`, `hook`, `icon`, `label`, `license`, `method`, `methodGroup`, `mode`,
+`namespace`, `package`, `parameters`, `target`, `taskName`, `timestamp`,
+`type`.
+
+Two deliberate gaps. The `entity-definition` scaffold is a multi-step
+bootstrap/preview/apply workflow, so the script points you at the
+`shopware_entity_schema_*` MCP tools instead. And `twig-form-fields` is
+implemented against the documented request shape but unverified: the server's
+Twig form inference returned no candidates for any fixture I could build, so
+treat it as untested.
+
 
 ## Development
 

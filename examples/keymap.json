@@ -4,13 +4,27 @@
     "context": "Editor && extension == twig",
     "bindings": {
       "alt-shift-e": ["task::Spawn", { "task_name": "Shopware: add Twig extends" }],
-      "alt-shift-b": ["task::Spawn", { "task_name": "Shopware: add Twig blocks" }]
+      "alt-shift-b": ["task::Spawn", { "task_name": "Shopware: add Twig blocks" }],
+      "alt-shift-f": [
+        "task::Spawn",
+        { "task_name": "Shopware: generate Twig form rows" }
+      ]
+    }
+  },
+  {
+    "context": "Editor && extension == php",
+    "bindings": {
+      "alt-shift-f": ["task::Spawn", { "task_name": "Shopware: generate form fields" }]
     }
   },
   {
     "context": "Workspace",
     "bindings": {
-      "alt-shift-d": ["task::Spawn", { "task_name": "Shopware: diagnostics for this file" }]
+      "alt-shift-n": ["task::Spawn", { "task_name": "Shopware: scaffold (preview)" }],
+      "alt-shift-d": [
+        "task::Spawn",
+        { "task_name": "Shopware: diagnostics for this file" }
+      ]
     }
   }
 ]

@@ -36,13 +36,18 @@ impossible here.
   `WorkspaceEdit`. Zed's extension API can neither register the command nor
   filter the dead entry out of the menu.
 
-  What it can do is bypass the code action entirely: almost every one of these
-  is backed by a pair of *server* commands, `.../candidates` and
-  `.../generate`, both reachable via `workspace/executeCommand` and the CLI.
-  `scripts/sw-action.py` does the picker in a terminal and the insertion on
-  disk, driven from a Zed task. See `examples/tasks.json`. Adding another
-  action is usually just a table entry, provided its server twin exists in the
-  44-command list.
+  What it can do is bypass the code action entirely: these are backed by
+  ordinary *server* commands, reachable via `workspace/executeCommand` and the
+  CLI. `scripts/sw-action.py` does the picker in a terminal and the writing on
+  disk, driven from a Zed task. See `examples/tasks.json`.
+
+  Adding another generator is usually one `SNIPPET_ACTIONS` entry, but check
+  three things first, because they differ per generator: whether `generate`
+  returns a snippet to insert or a whole file to replace (`mode`), whether
+  `candidates` needs a `className` the server will not infer (`needs_class`,
+  resolved from the document outline), and whether the kind requires an
+  `options` entry. `shopware/integration/catalog` lists the client commands and
+  all 24 scaffolds.
 
 ## Layout
 

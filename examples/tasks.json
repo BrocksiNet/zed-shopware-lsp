@@ -1,9 +1,9 @@
-// Copy into your Shopware project as .zed/tasks.json, then adjust the path to
-// sw-action.py. Run with `task: spawn`, or bind a key (see keymap.json).
+// Copy into your Shopware or Symfony project as .zed/tasks.json, together with
+// sw-action.py. Run via `task: spawn`, or bind keys (see keymap.json).
 //
 // These cover shopware-lsp generator features that cannot be LSP code actions
-// in Zed: the server hands back a text snippet and expects the client to run a
-// picker and insert it. The task does both.
+// in Zed: the server returns text or a WorkspaceEdit and expects the client to
+// run a picker and write the result. The task does both.
 [
   {
     "label": "Shopware: add Twig extends",
@@ -14,10 +14,8 @@
       "$ZED_FILE",
       "$ZED_ROW"
     ],
-    // The script reads the file from disk, so flush the buffer first.
+    // The script reads from disk, so flush the buffer first.
     "save": "current",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false,
     "reveal": "always",
     "hide": "on_success"
   },
@@ -33,6 +31,43 @@
     "save": "current",
     "reveal": "always",
     "hide": "on_success"
+  },
+  {
+    "label": "Shopware: generate form fields",
+    "command": "python3",
+    // Rewrites the whole FormType, so no row argument.
+    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "form-fields", "$ZED_FILE"],
+    "save": "current",
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: generate Twig form rows",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "twig-form-fields",
+      "$ZED_FILE",
+      "$ZED_ROW"
+    ],
+    "save": "current",
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: scaffold (preview)",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "scaffold",
+      "$ZED_DIRNAME",
+      "--print"
+    ],
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: scaffold (write)",
+    "command": "python3",
+    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "scaffold", "$ZED_DIRNAME"],
+    "reveal": "always"
   },
   {
     "label": "Shopware: diagnostics for this file",
