@@ -21,11 +21,19 @@ impossible here.
   working-directory field. Only `language_server_command` receives a
   `Worktree`, which is why the project root is cached from there for the MCP
   server to reuse.
-- **Quickfixes from the server carry no standard `edit` or `command`.** Their
-  payload sits in `diagnostics[].data._shopwareLSP.fixes`, which only the VS
-  Code extension can read. Making those work needs a server-side change
-  (a real `edit`, or `resolveProvider: true` plus `codeAction/resolve`), not a
-  change here.
+- **Diagnostic quickfixes do work**, but only because the client round-trips
+  the diagnostic `data` field. The server puts the fix in
+  `diagnostics[].data._shopwareLSP.fixes` and offers two paths: an inline
+  `edit` when the client cannot resolve, or a bare action plus
+  `codeAction/resolve` when it can. Zed declares `publish_diagnostics.
+  data_support` and `code_action.data_support`, so it takes the resolve path.
+  Strip that `data` and the quickfix disappears from the response entirely.
+- **The ~20 generator actions are dead in any non-VS-Code client.** They carry
+  a `command` naming a client-side `shopware.*` command (`insertSnippet`,
+  `twig.extendBlock`, `symfony.generateService`, ...) that only the VS Code
+  extension implements, usually because it opens a picker. They still appear in
+  Zed's code-action menu and do nothing. Not fixable here; the extension API
+  cannot filter code actions.
 
 ## Layout
 

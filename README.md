@@ -190,9 +190,17 @@ these stay VS Code and Cursor only:
 
 - the ~23 `shopware.*` palette commands (restart, force reindex, Symfony
   browsers, snippet scaffolds, Twig block diffs)
-- quickfixes such as `Remove unused import`, whose payload the server hides in
-  `diagnostics[].data._shopwareLSP.fixes` rather than a standard `edit`
+- the ~20 generator code actions (`Insert Snippet`, `Add Twig extends`,
+  `Generate a Symfony service definition`, ...). These carry a `command` naming
+  a client-side `shopware.*` command that only the VS Code extension
+  implements, mostly because it opens a picker. They appear in Zed's
+  code-action menu and do nothing.
 - custom UI like the entity designer
+
+Diagnostic quickfixes, by contrast, **do** work: `Remove unused import`,
+missing snippets, missing icons, and outdated Twig blocks all apply correctly,
+because Zed round-trips the diagnostic `data` the server needs and calls
+`codeAction/resolve`.
 
 The server's own 44 `shopware/*` commands run over `workspace/executeCommand`
 and are reachable from the CLI in the meantime:

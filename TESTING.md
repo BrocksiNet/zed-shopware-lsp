@@ -79,6 +79,9 @@ server. Re-run `zed: install dev extension` first.
 - [ ] Diagnostics appear (unused imports are a reliable source).
 - [ ] `editor: toggle code actions` on a PHP file offers `Organize Imports`,
       and applying it removes the unused imports.
+- [ ] On an unused-import diagnostic, the `Remove unused import '...'` quickfix
+      applies. This exercises the `codeAction/resolve` round trip, which only
+      works while Zed preserves the diagnostic `data` field.
 - [ ] Open a `.twig` file with the Twig extension installed and confirm the
       server attaches to it.
 - [ ] With no `shopware-lsp` on `PATH` and no `binary.path`, the download runs
