@@ -8,24 +8,79 @@ JS/TS, SCSS, and Vue.
 Zed cannot load VS Code extensions and has no settings-only way to declare a new
 language server, so a small WASM extension is the only route.
 
+## Requirements
+
+- **Zed** (tested on 1.18).
+- **Rust via rustup**, with the `wasm32-wasip2` target. Zed compiles the
+  extension itself, so the toolchain has to be present. If Rust came from
+  Homebrew or Nix rather than rustup, add the target yourself.
+- **git**.
+- Optional: **fzf**, which the task scripts use for nicer pickers. Without it
+  they fall back to a numbered prompt.
+
+No PHP, Go or Node needed. The language server is a prebuilt binary the
+extension downloads.
+
 ## Install
 
-```
-zed: install dev extension    → pick this directory
-```
+**1. Clone it somewhere permanent.**
 
-Zed compiles the extension, then downloads the matching `shopware-lsp` build on
-first use. No manual binary install.
-
-Also install the **Twig** extension from Zed's registry. Without it `.twig`
-files get no languageId and the server is never attached to them.
-
-Building from source instead requires Rust with the `wasm32-wasip2` target:
+Zed loads a dev extension *from the directory you point it at* and keeps
+reading it from there, so this is not a throwaway checkout. Do not clone into
+`/tmp`, and do not delete or move it afterwards.
 
 ```bash
+git clone https://github.com/BrocksiNet/zed-shopware-lsp.git \
+  ~/Documents/Projects/zed-shopware-lsp
+cd ~/Documents/Projects/zed-shopware-lsp
 rustup target add wasm32-wasip2
-cargo build --release --target wasm32-wasip2
 ```
+
+**2. Install it into Zed.**
+
+Open the command palette (`cmd-shift-p` on macOS, `ctrl-shift-p` elsewhere) and
+run `zed: install dev extension`. A directory picker opens.
+
+Select the **repository root** — the folder holding `extension.toml`. Not
+`src/`, not the parent directory. If you cloned as above, that is
+`~/Documents/Projects/zed-shopware-lsp`.
+
+Zed compiles the extension at this point; the first build takes roughly half a
+minute. When it finishes, the Extensions page lists **Shopware LSP** as a dev
+extension.
+
+**3. Install the Twig extension.**
+
+From Zed's Extensions page, search for `Twig` and install it. Without it,
+`.twig` files get no language id and the server never attaches to them.
+
+**4. Open a Shopware project.**
+
+The server downloads on first use, with progress shown in Zed's status bar. No
+manual binary install, and no settings are required.
+
+## Verify it works
+
+- `debug: open language server logs` lists `shopware-lsp` with no initialize
+  error.
+- Hover a Shopware class in a PHP file; you should get documentation.
+- `editor: toggle code actions` on a PHP file with unused imports offers
+  `Organize Imports`.
+
+If nothing happens, check that the project root is a Shopware or Symfony
+project. The server refuses to start otherwise, and says so in the log.
+
+## Updating and removing
+
+```bash
+cd ~/Documents/Projects/zed-shopware-lsp && git pull
+```
+
+Then re-run `zed: install dev extension` on the same folder to rebuild it.
+
+To remove it, uninstall **Shopware LSP** from the Extensions page. The
+downloaded server lives in the extension's work directory and goes with it.
+
 
 ## How the server is resolved
 
@@ -55,6 +110,13 @@ trust the vsix version rather than the binary's own string.
 
 ## Settings
 
+**None are required.** Everything below is optional; `examples/settings.json`
+has the same content ready to merge into your own settings.
+
+Do not set `lsp.shopware-lsp.binary.path` unless you have a specific server you
+want to pin. The extension finds one on its own, and a path that later stops
+existing is a common way to end up with no language server at all.
+
 ```json
 {
   "lsp": {
@@ -70,6 +132,27 @@ trust the vsix version rather than the binary's own string.
 `settings` is forwarded verbatim on `workspace/configuration`, and
 `initialization_options` on `initialize`. Project-level configuration lives in
 `.config/shopware/lsp.yaml` in the workspace root.
+
+Validate `.config/shopware/lsp.yaml` against the server's own schema, the
+equivalent of the VS Code extension's `yamlValidation`:
+
+```json
+{
+  "lsp": {
+    "yaml-language-server": {
+      "settings": {
+        "yaml": {
+          "schemas": {
+            "https://raw.githubusercontent.com/shopware/shopware-lsp/feat/next-gen/internal/projectconfig/schema.json": [
+              ".config/shopware/lsp.yaml"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 Organize-imports on save, which is one of the few code actions that works in a
 generic client:
