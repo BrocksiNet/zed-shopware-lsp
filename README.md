@@ -157,6 +157,20 @@ registry ([zed#59351](https://github.com/zed-industries/zed/issues/59351)). If
 that lands before this is rewritten, the same server still works as a custom
 context server pointed straight at the binary.
 
+## Repository layout
+
+| Path | What it is |
+|---|---|
+| `extension.toml` | Zed manifest: the language server, its language list, and the context server |
+| `src/lib.rs` | The entire extension. Pure helpers, then `impl zed::Extension`, then unit tests |
+| `docs/` | Markdown and JSON schema shown in Zed's context-server UI, embedded via `include_str!` |
+| `scripts/contract-check.py` | Verifies assumptions about Open VSX and the server binary |
+| `build-server.sh` | Builds the server from a local checkout. Needs Go and CGO |
+| `update-server.sh` | Installs the published server. Currently yields a build Zed cannot use |
+| `shopware-lsp-zed` | Retired stdio shim that patched the `tokenModifiers` null |
+| `AGENTS.md` | Architecture, constraints, and conventions for contributors and agents |
+| `TESTING.md` | The three-layer test plan and the manual Zed checklist |
+
 ## Development
 
 ```bash

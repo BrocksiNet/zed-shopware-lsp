@@ -7,7 +7,11 @@ its LSP handshake. This script checks exactly those seams and is meant to run
 on a schedule, not on every commit.
 
 Usage:
-    scripts/contract-check.py [--binary PATH]
+    scripts/contract-check.py [--binary PATH] [--expect-fail NAME ...]
+
+`--expect-fail` tolerates a named check that is known to fail against the
+currently published server. Any *other* failure still fails the run, so CI
+cannot go green by blanket-ignoring this script.
 """
 
 import argparse
@@ -246,6 +250,13 @@ def check_mcp(binary, root):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--expect-fail",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="a check that is known to fail upstream; repeatable",
+    )
+    parser.add_argument(
         "--binary",
         default=os.environ.get("SHOPWARE_LSP_BIN")
         or shutil.which("shopware-lsp")
@@ -268,12 +279,23 @@ def main():
             check_mcp(args.binary, root)
 
     print()
-    if failures:
-        print(f"{len(failures)} contract check(s) failed:")
-        for name in failures:
+    expected = set(args.expect_fail)
+    unexpected = [name for name in failures if name not in expected]
+    tolerated = [name for name in failures if name in expected]
+    resolved = expected - set(failures)
+
+    for name in tolerated:
+        print(f"KNOWN   {name}")
+    for name in resolved:
+        print(f"NOTE    known failure no longer reproduces, drop --expect-fail: {name}")
+
+    if unexpected:
+        print(f"\n{len(unexpected)} unexpected contract failure(s):")
+        for name in unexpected:
             print(f"  - {name}")
         return 1
-    print("all contract checks passed")
+
+    print("\nno unexpected contract failures")
     return 0
 
 

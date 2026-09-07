@@ -47,7 +47,10 @@ jobs:
           unzip -q server.vsix -d server
           chmod +x server/extension/shopware-lsp
 
-      # Expected to fail the tokenModifiers check until
-      # shopware/shopware-lsp#59 ships in a release.
-      - run: python3 scripts/contract-check.py --binary "$PWD/server/extension/shopware-lsp"
-        continue-on-error: true
+      # The published server still sends tokenModifiers: null until
+      # shopware/shopware-lsp#59 ships. That one failure is tolerated by name so
+      # that any other contract break still fails this job.
+      - run: |
+          python3 scripts/contract-check.py \
+            --binary "$PWD/server/extension/shopware-lsp" \
+            --expect-fail "legend.tokenModifiers is an array, not null"

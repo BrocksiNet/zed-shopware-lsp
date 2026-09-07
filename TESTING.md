@@ -52,8 +52,19 @@ Checks:
 - `-root ... mcp` speaks MCP and lists `shopware_*` tools
 
 Needs network and a server binary, so it runs on a **weekly schedule** rather
-than per commit. Against the currently published binary the `tokenModifiers`
-check is expected to fail; that is the point.
+than per commit.
+
+Against the currently published binary the `tokenModifiers` check is expected
+to fail; that is the point. CI tolerates that one failure **by name** rather
+than ignoring the whole script:
+
+```bash
+scripts/contract-check.py --binary ./shopware-lsp \
+  --expect-fail "legend.tokenModifiers is an array, not null"
+```
+
+Any other failure still fails the job, and once the known one stops
+reproducing the script prints a `NOTE` telling you to drop the flag.
 
 ## 3. Manual checks in Zed
 
