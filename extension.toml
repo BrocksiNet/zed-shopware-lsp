@@ -1,0 +1,34 @@
+id = "shopware-lsp"
+name = "Shopware LSP"
+version = "0.0.1"
+schema_version = 1
+authors = ["b.meyer <b.meyer@shopware.com>"]
+description = "Shopware Language Server support for Zed (wraps the shopware-lsp binary)"
+repository = "https://github.com/shopware/shopware-lsp"
+
+[language_servers.shopware-lsp]
+name = "Shopware LSP"
+languages = [
+  "PHP",
+  "Twig",
+  "XML",
+  "YAML",
+  "JSON",
+  "JavaScript",
+  "TypeScript",
+  "TSX",
+  "SCSS",
+  "Vue.js",
+]
+
+[language_servers.shopware-lsp.language_ids]
+"PHP" = "php"
+"Twig" = "twig"
+"XML" = "xml"
+"YAML" = "yaml"
+"JSON" = "json"
+"JavaScript" = "javascript"
+"TypeScript" = "typescript"
+"TSX" = "typescriptreact"
+"SCSS" = "scss"
+"Vue.js" = "vue"
