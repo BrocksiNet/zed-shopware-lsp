@@ -4,7 +4,7 @@ version = "0.0.1"
 schema_version = 1
 authors = ["b.meyer <b.meyer@shopware.com>"]
 description = "Shopware Language Server support for Zed (wraps the shopware-lsp binary)"
-repository = "https://github.com/shopware/shopware-lsp"
+repository = "https://github.com/BrocksiNet/zed-shopware-lsp"
 
 [language_servers.shopware-lsp]
 name = "Shopware LSP"
