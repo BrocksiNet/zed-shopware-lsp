@@ -102,6 +102,12 @@ is pure and tested; `open_vsx_target()` is the one-line wrapper that calls
 New logic that lands inside the `Extension` impl is untestable by
 construction. Move it out.
 
+Coverage sits around 55% (`cargo llvm-cov --summary-only`) and the uncovered
+half is exactly the host boundary. Do not chase the number; do check that no
+decision is hiding in it. `resolve_server` exists because the binary
+resolution order was duplicated across two hooks, drifted, and shipped a bug
+where the MCP server ran a different build from the language server.
+
 ## Commands
 
 ```bash

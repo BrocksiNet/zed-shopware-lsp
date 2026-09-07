@@ -29,6 +29,24 @@ Covered today:
 These were mutation-checked: breaking the linux-x64 mapping, reversing the MCP
 argument order, and loosening the prune prefix each fail exactly one test.
 
+### Coverage
+
+```bash
+cargo llvm-cov --summary-only
+```
+
+Around 55% of lines, and the split is deliberate rather than a target to chase.
+Everything uncovered is either an `Extension` trait hook or a function that
+calls a host import: `download_server`, `latest_release`, `remove_other_versions`,
+`open_vsx_target`, `binary_path_in`. None of those can run outside Zed, so the
+number will not move much without a wasm host harness.
+
+What matters is that no *decision* lives in the uncovered half. When a bug is
+found there, the fix is to lift the logic out into a pure function and test it,
+which is what `resolve_server` is: both hooks had their own copy of the
+resolution order, the copies drifted, and the MCP server ended up running a
+different binary from the editor.
+
 ## 2. Contract checks, `scripts/contract-check.py`
 
 Guards the seams we do not own. Unit tests cannot notice when Open VSX changes

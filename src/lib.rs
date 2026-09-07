@@ -150,6 +150,26 @@ fn find_on_path(
         .find(|candidate| exists(candidate))
 }
 
+/// Pick a server from the sources both hooks share, in priority order.
+///
+/// The ordering lived twice, once per hook, and drifted: the MCP hook skipped
+/// straight to a download and so ran a different build from the editor. Keeping
+/// it here means there is one order, expressed without host calls so it can be
+/// tested.
+///
+/// `None` means nothing usable was found and the caller should download.
+fn resolve_server(
+    configured: Option<String>,
+    cached: Option<String>,
+    lookup: impl FnOnce() -> Option<String>,
+    usable: impl Fn(&str) -> bool,
+) -> Option<String> {
+    configured
+        .filter(|path| usable(path))
+        .or_else(|| cached.filter(|path| usable(path)))
+        .or_else(lookup)
+}
+
 /// Whether a configured `binary.path` is worth spawning.
 ///
 /// A path that no longer exists is almost always stale configuration, and
@@ -265,24 +285,25 @@ impl ShopwareLspExtension {
     /// `Worktree` here, so `PATH` is read from the environment rather than
     /// through `Worktree::which`, and an explicit `command.path` is handled by
     /// the caller.
-    fn mcp_server_binary(&mut self) -> Result<String> {
-        if let Some(path) = self
-            .cached_binary_path
-            .clone()
-            .filter(|path| usable_binary(path))
-        {
-            return Ok(path);
-        }
+    fn mcp_server_binary(&mut self, configured: Option<String>) -> Result<String> {
+        let resolved = resolve_server(
+            configured,
+            self.cached_binary_path.clone(),
+            || {
+                std::env::var("PATH")
+                    .ok()
+                    .and_then(|value| find_on_path(&value, SERVER_NAME, usable_binary))
+            },
+            usable_binary,
+        );
 
-        if let Some(path) = std::env::var("PATH")
-            .ok()
-            .and_then(|value| find_on_path(&value, SERVER_NAME, usable_binary))
-        {
-            self.cached_binary_path = Some(path.clone());
-            return Ok(path);
+        match resolved {
+            Some(path) => {
+                self.cached_binary_path = Some(path.clone());
+                Ok(path)
+            }
+            None => self.download_server(None),
         }
-
-        self.download_server(None)
     }
 
     /// Resolve the server, preferring anything the user controls.
@@ -295,22 +316,25 @@ impl ShopwareLspExtension {
         language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<String> {
-        if let Some(path) = LspSettings::for_worktree(SERVER_NAME, worktree)
+        let configured = LspSettings::for_worktree(SERVER_NAME, worktree)
             .ok()
             .and_then(|settings| settings.binary)
-            .and_then(|binary| binary.path)
-            .filter(|path| usable_binary(path))
-        {
-            self.cached_binary_path = Some(path.clone());
-            return Ok(path);
-        }
+            .and_then(|binary| binary.path);
 
-        if let Some(path) = worktree.which(SERVER_NAME) {
-            self.cached_binary_path = Some(path.clone());
-            return Ok(path);
-        }
+        let resolved = resolve_server(
+            configured,
+            self.cached_binary_path.clone(),
+            || worktree.which(SERVER_NAME),
+            usable_binary,
+        );
 
-        self.download_server(Some(language_server_id))
+        match resolved {
+            Some(path) => {
+                self.cached_binary_path = Some(path.clone());
+                Ok(path)
+            }
+            None => self.download_server(Some(language_server_id)),
+        }
     }
 }
 
@@ -385,8 +409,11 @@ impl zed::Extension for ShopwareLspExtension {
 
         let command = settings.as_ref().and_then(|s| s.command.as_ref());
 
-        // A full command override bypasses discovery entirely.
-        if let Some(path) = command.and_then(|c| c.path.clone()) {
+        // A full command override with explicit arguments bypasses discovery.
+        if let Some(path) = command
+            .and_then(|c| c.path.clone())
+            .filter(|_| command.and_then(|c| c.arguments.as_ref()).is_some())
+        {
             return Ok(zed::Command {
                 command: path,
                 args: command
@@ -409,7 +436,7 @@ impl zed::Extension for ShopwareLspExtension {
         let args = mcp_args(root.as_deref());
 
         Ok(zed::Command {
-            command: self.mcp_server_binary()?,
+            command: self.mcp_server_binary(command.and_then(|c| c.path.clone()))?,
             args,
             env: command
                 .and_then(|c| c.env.clone())
@@ -640,6 +667,69 @@ mod tests {
         );
         assert_eq!(find_on_path("/usr/bin:/sbin", SERVER_NAME, present), None);
         assert_eq!(find_on_path("", SERVER_NAME, present), None);
+    }
+
+    #[test]
+    fn resolution_order_prefers_what_the_user_controls() {
+        let anything = |_: &str| true;
+        let found = || Some("/from/lookup/shopware-lsp".to_string());
+
+        // Configured path wins over everything.
+        assert_eq!(
+            resolve_server(
+                Some("/configured".into()),
+                Some("/cached".into()),
+                found,
+                anything
+            ),
+            Some("/configured".to_string())
+        );
+        // Then whatever was already resolved.
+        assert_eq!(
+            resolve_server(None, Some("/cached".into()), found, anything),
+            Some("/cached".to_string())
+        );
+        // Then the lookup, which is PATH or Worktree::which.
+        assert_eq!(
+            resolve_server(None, None, found, anything),
+            Some("/from/lookup/shopware-lsp".to_string())
+        );
+        // Nothing usable means the caller downloads.
+        assert_eq!(resolve_server(None, None, || None, anything), None);
+    }
+
+    #[test]
+    fn resolution_order_skips_paths_that_no_longer_exist() {
+        let only_cached = |path: &str| path == "/cached";
+        let nothing = |_: &str| false;
+
+        // A stale configured path must not shadow a working cached one; this
+        // is the case that produced "failed to spawn command" in Zed.
+        assert_eq!(
+            resolve_server(
+                Some("/gone".into()),
+                Some("/cached".into()),
+                || None,
+                only_cached
+            ),
+            Some("/cached".to_string())
+        );
+        // A stale cache falls through to the lookup.
+        assert_eq!(
+            resolve_server(
+                None,
+                Some("/gone".into()),
+                || Some("/found".to_string()),
+                nothing
+            ),
+            Some("/found".to_string())
+        );
+        // Both hooks share this, so the MCP server can no longer disagree with
+        // the language server about which binary to run.
+        assert_eq!(
+            resolve_server(None, Some("/gone".into()), || None, nothing),
+            None
+        );
     }
 
     #[test]
