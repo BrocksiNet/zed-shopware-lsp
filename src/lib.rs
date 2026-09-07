@@ -131,6 +131,25 @@ fn merge_json(base: &mut zed::serde_json::Value, overlay: zed::serde_json::Value
     }
 }
 
+/// First `program` found in a `PATH`-style variable that `exists` accepts.
+///
+/// `Worktree::which` is the normal way to do this, but `context_server_command`
+/// receives a `Project`, which has no equivalent. Without this the MCP server
+/// falls straight through to a managed download and ignores a server the user
+/// installed themselves, so the Agent Panel can end up on a different build
+/// from the editor.
+fn find_on_path(
+    path_variable: &str,
+    program: &str,
+    exists: impl Fn(&str) -> bool,
+) -> Option<String> {
+    path_variable
+        .split(':')
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| format!("{}/{program}", entry.trim_end_matches('/')))
+        .find(|candidate| exists(candidate))
+}
+
 /// Whether a configured `binary.path` is worth spawning.
 ///
 /// A path that no longer exists is almost always stale configuration, and
@@ -238,6 +257,32 @@ impl ShopwareLspExtension {
                 fs::remove_dir_all(entry.path()).ok();
             }
         }
+    }
+
+    /// Resolve the server for the MCP context server.
+    ///
+    /// Mirrors `server_binary` as closely as the API allows. There is no
+    /// `Worktree` here, so `PATH` is read from the environment rather than
+    /// through `Worktree::which`, and an explicit `command.path` is handled by
+    /// the caller.
+    fn mcp_server_binary(&mut self) -> Result<String> {
+        if let Some(path) = self
+            .cached_binary_path
+            .clone()
+            .filter(|path| usable_binary(path))
+        {
+            return Ok(path);
+        }
+
+        if let Some(path) = std::env::var("PATH")
+            .ok()
+            .and_then(|value| find_on_path(&value, SERVER_NAME, usable_binary))
+        {
+            self.cached_binary_path = Some(path.clone());
+            return Ok(path);
+        }
+
+        self.download_server(None)
     }
 
     /// Resolve the server, preferring anything the user controls.
@@ -364,7 +409,7 @@ impl zed::Extension for ShopwareLspExtension {
         let args = mcp_args(root.as_deref());
 
         Ok(zed::Command {
-            command: self.download_server(None)?,
+            command: self.mcp_server_binary()?,
             args,
             env: command
                 .and_then(|c| c.env.clone())
@@ -566,6 +611,35 @@ mod tests {
         assert!(usable_binary(
             std::env::current_exe().unwrap().to_str().unwrap()
         ));
+    }
+
+    #[test]
+    fn finds_the_server_on_a_path_variable() {
+        // The MCP hook gets a Project, which has no `which`, so PATH has to be
+        // walked by hand or the Agent Panel silently runs a different build
+        // from the editor.
+        let present = |candidate: &str| candidate == "/opt/homebrew/bin/shopware-lsp";
+
+        assert_eq!(
+            find_on_path("/usr/bin:/opt/homebrew/bin:/sbin", SERVER_NAME, present),
+            Some("/opt/homebrew/bin/shopware-lsp".to_string())
+        );
+        // Earlier entries win, matching how a shell resolves a command.
+        assert_eq!(
+            find_on_path(
+                "/opt/homebrew/bin:/usr/bin",
+                SERVER_NAME,
+                |candidate: &str| candidate.starts_with('/')
+            ),
+            Some("/opt/homebrew/bin/shopware-lsp".to_string())
+        );
+        // Trailing slashes and empty segments are common in a real PATH.
+        assert_eq!(
+            find_on_path("::/opt/homebrew/bin/:", SERVER_NAME, present),
+            Some("/opt/homebrew/bin/shopware-lsp".to_string())
+        );
+        assert_eq!(find_on_path("/usr/bin:/sbin", SERVER_NAME, present), None);
+        assert_eq!(find_on_path("", SERVER_NAME, present), None);
     }
 
     #[test]

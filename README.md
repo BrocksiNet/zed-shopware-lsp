@@ -210,6 +210,12 @@ and the seven `shopware_entity_schema_*` tools.
 
 Nothing to install: it reuses the same binary as the language server.
 
+The MCP server resolves its binary the same way the language server does:
+`command.path` from settings, then whatever the language server already
+resolved, then `PATH`, then a managed download. Without that last-but-one step
+the Agent Panel can end up running a different build from the editor, since
+`context_server_command` receives a `Project` and has no `Worktree::which`.
+
 `shopware-lsp mcp` refuses to start outside a Shopware or Symfony project, and
 Zed's `Project` handle exposes worktree IDs but no paths, so the root is taken
 from the `root` setting first, then from whatever the language server last
