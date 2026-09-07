@@ -156,12 +156,24 @@ when installed and falls back to a numbered prompt.
 | `twig-extend-block` | Override a storefront block in an extension | verified |
 | `admin-twig-override` | Override an admin block, and register it in `main.js` | verified |
 | `twig-block-diff` | Show an override against its upstream block | read-only |
+| `service-definition` | Render a service definition, arguments resolved from the index | verified |
+| `compiler-pass` | Create a compiler pass and register it in the bundle | verified |
+| `translation-extract` | Replace Twig text with a key, add it to every locale file | verified |
 | `twig-form-fields` | Insert Twig form rows | **unverified** |
 
 `scaffold` covers both families: the `symfony` kinds return a single file, the
 `shopware` kinds a `WorkspaceEdit` that the script applies (including
 multi-file output such as `scheduled-task`, which writes a task and its
 handler). Use `--print` to preview.
+
+`service-definition` prints to the terminal rather than editing, because its
+output belongs in a services config file, not the PHP file it was generated
+from. `--format` takes `yaml`, `xml`, `fluent` or `php-array`.
+
+`translation-extract` needs the text, which the example task passes as
+`$ZED_SELECTED_TEXT`; Zed only offers the task when something is selected. It
+locates the text in the file rather than trusting `$ZED_COLUMN`, since the
+column sits at whichever end of the selection the cursor is on.
 
 Some kinds need an extra option, for example
 `--option 'event=Shopware\Core\...\EntityWrittenEvent'` for

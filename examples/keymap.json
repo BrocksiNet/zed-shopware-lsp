@@ -17,13 +17,21 @@
         "task::Spawn",
         { "task_name": "Shopware: override storefront block" }
       ],
-      "alt-shift-i": ["task::Spawn", { "task_name": "Shopware: Twig block diff" }]
+      "alt-shift-i": ["task::Spawn", { "task_name": "Shopware: Twig block diff" }],
+      "alt-shift-t": [
+        "task::Spawn",
+        { "task_name": "Shopware: extract Twig translation" }
+      ]
     }
   },
   {
     "context": "Editor && extension == php",
     "bindings": {
-      "alt-shift-f": ["task::Spawn", { "task_name": "Shopware: generate form fields" }]
+      "alt-shift-f": ["task::Spawn", { "task_name": "Shopware: generate form fields" }],
+      "alt-shift-g": [
+        "task::Spawn",
+        { "task_name": "Shopware: service definition for this class" }
+      ]
     }
   },
   {

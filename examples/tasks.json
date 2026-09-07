@@ -119,6 +119,39 @@
     "reveal": "always"
   },
   {
+    "label": "Shopware: service definition for this class",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "service-definition",
+      "$ZED_FILE"
+    ],
+    "save": "current",
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: create compiler pass",
+    "command": "python3",
+    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "compiler-pass"],
+    "reveal": "always"
+  },
+  {
+    // Only offered when text is selected: Zed filters out tasks whose
+    // variables are unset.
+    "label": "Shopware: extract Twig translation",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "translation-extract",
+      "$ZED_FILE",
+      "$ZED_ROW",
+      "--text",
+      "$ZED_SELECTED_TEXT"
+    ],
+    "save": "current",
+    "reveal": "always"
+  },
+  {
     "label": "Shopware: diagnostics for this file",
     "command": "shopware-lsp",
     "args": ["-root", "$ZED_WORKTREE_ROOT", "check", "$ZED_FILE"],

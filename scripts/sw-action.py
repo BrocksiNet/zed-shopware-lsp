@@ -131,6 +131,9 @@ OTHER_ACTIONS = {
     "twig-extend-block": "Override a storefront block in an extension",
     "admin-twig-override": "Override an Administration Twig block",
     "twig-block-diff": "Show an override against its upstream block",
+    "service-definition": "Render a Symfony service definition for a class",
+    "compiler-pass": "Create a compiler pass and register it in a bundle",
+    "translation-extract": "Extract selected Twig text into a translation",
 }
 
 
@@ -620,6 +623,217 @@ def run_scaffold(args, binary):
         print(f"  primary file: {relative(primary, args.root)}")
 
 
+SERVICE_FORMATS = ["yaml", "xml", "fluent", "php-array"]
+
+
+def run_service_definition(args, binary):
+    """Render a Symfony service definition for the class in this file.
+
+    The result belongs in a services config file, not in the PHP file, so it
+    is printed rather than inserted. Redirect it or copy it from the terminal.
+    """
+    path = os.path.abspath(args.target)
+    if not os.path.isfile(path):
+        sys.exit(f"not a file: {path}")
+
+    class_name = args.class_name or resolve_class(binary, args.root, path)
+    if not class_name:
+        sys.exit(f"could not find a class in {relative(path, args.root)}")
+
+    # `output` is a format, not a destination.
+    fmt = args.format or choose(SERVICE_FORMATS, "output format", False)[0]
+    if fmt not in SERVICE_FORMATS:
+        sys.exit(f"unsupported format {fmt!r}; expected one of {SERVICE_FORMATS}")
+
+    with open(path, encoding="utf-8") as handle:
+        source = handle.read()
+
+    result = execute(
+        binary,
+        args.root,
+        "shopware/symfony/service/generate",
+        {
+            "fileUri": "file://" + path,
+            "source": source,
+            "version": 1,
+            "className": class_name,
+            "output": fmt,
+            "classAsId": bool(args.class_as_id),
+            "serviceId": args.service_id or "",
+        },
+    )
+    content = (result or {}).get("content", "")
+    if not content:
+        sys.exit(f"the server returned no definition: {json.dumps(result)[:200]}")
+
+    print(f"# {class_name} as {fmt}")
+    print(content, end="" if content.endswith("\n") else "\n")
+
+
+def run_compiler_pass(args, binary):
+    """Create a compiler pass and register it in the chosen bundle."""
+    extension = pick_extension(args, binary, args.root)
+    listed = execute(binary, args.root, "shopware/extension/all", {})
+    entry = next(
+        (item for item in listed if item.get("Name") == extension), None
+    )
+    if not entry or not entry.get("Path"):
+        sys.exit(f"no bundle class path known for extension {extension!r}")
+
+    bundle_path = entry["Path"]
+    bundle_class = resolve_class(binary, args.root, bundle_path)
+    if not bundle_class:
+        sys.exit(f"could not resolve the bundle class in {bundle_path}")
+
+    name = args.name or input("compiler pass class name [CollectServicesPass]: ").strip()
+    name = name or "CollectServicesPass"
+
+    with open(bundle_path, encoding="utf-8") as handle:
+        bundle_source = handle.read()
+
+    result = execute(
+        binary,
+        args.root,
+        "shopware/symfony/compilerPass/create",
+        {
+            "bundleUri": "file://" + bundle_path,
+            "bundleClass": bundle_class,
+            "className": name,
+            "source": bundle_source,
+            "version": 1,
+        },
+    )
+    pass_path = uri_to_path((result or {}).get("fileUri", ""))
+    pass_content = (result or {}).get("fileContent", "")
+    bundle_content = (result or {}).get("bundleContent", "")
+    if not pass_path or not pass_content:
+        sys.exit(f"the server returned no compiler pass: {json.dumps(result)[:200]}")
+
+    writes = [(pass_path, pass_content)]
+    if bundle_content:
+        writes.append((bundle_path, bundle_content))
+
+    verb = "would write" if args.print_only else "wrote"
+    for target, content in writes:
+        if not args.print_only:
+            os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+            with open(target, "w", encoding="utf-8") as handle:
+                handle.write(content)
+        print(f"  {verb} {relative(target, args.root)}  ({len(content)} bytes)")
+
+
+def locate_range(path, text, row):
+    """LSP range covering `text`, searching at or after `row`.
+
+    Zed hands a task `$ZED_SELECTED_TEXT`, `$ZED_ROW` and `$ZED_COLUMN`, but
+    the column sits at whichever end of the selection the cursor is on, so
+    reconstructing the range from it is guesswork. Searching for the text is
+    deterministic instead.
+
+    Characters are UTF-16 code units per the LSP spec, so text outside the BMP
+    would need conversion; Twig literals in practice are not.
+    """
+    with open(path, encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+
+    order = list(range(max(row - 1, 0), len(lines))) + list(range(0, max(row - 1, 0)))
+    for index in order:
+        column = lines[index].find(text)
+        if column != -1:
+            return {
+                "start": {"line": index, "character": column},
+                "end": {"line": index, "character": column + len(text)},
+            }
+    sys.exit(f"could not find {text!r} in {os.path.basename(path)}")
+
+
+def run_translation_extract(args, binary):
+    """Extract selected Twig text into a translation key."""
+    path = os.path.abspath(args.target)
+    if not os.path.isfile(path):
+        sys.exit(f"not a file: {path}")
+
+    text = args.text or os.environ.get("ZED_SELECTED_TEXT") or ""
+    text = text.strip()
+    if not text:
+        sys.exit("nothing to extract; pass --text or select something first")
+
+    with open(path, encoding="utf-8") as handle:
+        source = handle.read()
+
+    selection = locate_range(path, text, args.row)
+    # No `version` here: this command validates the document version against
+    # its own snapshot and rejects any value with "syntax element handle is
+    # stale". Omitting it lets the server use the snapshot it already has.
+    request = {
+        "fileUri": "file://" + path,
+        "source": source,
+        "range": selection,
+    }
+
+    prepared = execute(
+        binary, args.root, "shopware/symfony/translation/extract/prepare", request
+    ) or {}
+    domains = prepared.get("domains") or []
+    default_domain = prepared.get("defaultDomain") or ""
+    default_key = prepared.get("defaultKey") or ""
+
+    domain = args.domain or (
+        choose(domains, "domain", False)[0] if domains else default_domain
+    )
+    key = args.key or input(f"key [{default_key}]: ").strip() or default_key
+    if not key:
+        sys.exit("a translation key is required")
+
+    generate = dict(request)
+    generate.update({"key": key, "domain": domain})
+    result = execute(
+        binary, args.root, "shopware/symfony/translation/extract/generate", generate
+    ) or {}
+
+    print(f"{key!r} in domain {domain!r} replaces {text!r}")
+
+    edit = result.get("edit")
+    if not edit:
+        # `edit` is optional. The response always carries the pieces though:
+        # `range`/`replacement` for the template, and one target per
+        # translation file with an insertion point and its text. Assemble the
+        # same WorkspaceEdit from those rather than depending on the optional
+        # field being populated.
+        replacement = result.get("replacement")
+        if replacement is None:
+            sys.exit(f"the server returned nothing usable: {json.dumps(result)[:200]}")
+
+        changes = [
+            {
+                "textDocument": {"uri": "file://" + path, "version": None},
+                "edits": [
+                    {"range": result.get("range", selection), "newText": replacement}
+                ],
+            }
+        ]
+        for target in result.get("targets") or []:
+            uri = target.get("fileUri") or ("file://" + target.get("file", ""))
+            position = {
+                "line": target.get("line", 0),
+                "character": target.get("character", 0),
+            }
+            changes.append(
+                {
+                    "textDocument": {"uri": uri, "version": None},
+                    "edits": [
+                        {
+                            "range": {"start": position, "end": position},
+                            "newText": target.get("newText", ""),
+                        }
+                    ],
+                }
+            )
+        edit = {"documentChanges": changes}
+
+    apply_workspace_edit(edit, args.print_only, args.root)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run shopware-lsp generators that cannot be Zed code actions."
@@ -634,6 +848,15 @@ def main():
     parser.add_argument("--key", help="snippet key, skips the prompt")
     parser.add_argument("--value", help="snippet value, skips the prompt")
     parser.add_argument("--block", help="Twig block name, skips the picker")
+    parser.add_argument(
+        "--format", help="service definition format: yaml, xml, fluent or php-array"
+    )
+    parser.add_argument("--service-id", help="explicit service id")
+    parser.add_argument(
+        "--class-as-id", action="store_true", help="use the class name as the service id"
+    )
+    parser.add_argument("--text", help="text to extract, defaults to $ZED_SELECTED_TEXT")
+    parser.add_argument("--domain", help="translation domain, skips the picker")
     parser.add_argument("--extension", help="extension name, skips the picker")
     parser.add_argument(
         "--class",
@@ -674,6 +897,10 @@ def main():
         run_scaffold(args, binary)
         return
 
+    if args.action == "compiler-pass":
+        run_compiler_pass(args, binary)
+        return
+
     if not args.target:
         sys.exit(f"{args.action} needs a file")
 
@@ -684,6 +911,8 @@ def main():
         "twig-block-diff": run_twig_block_diff,
         "snippet": lambda a, b: run_snippet_create(a, b, "storefront"),
         "snippet-admin": lambda a, b: run_snippet_create(a, b, "admin"),
+        "service-definition": run_service_definition,
+        "translation-extract": run_translation_extract,
     }
     handler = handlers.get(args.action)
     if handler:
