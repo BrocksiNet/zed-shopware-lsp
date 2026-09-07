@@ -53,3 +53,46 @@ browsers, snippet scaffolds, Twig block diffs) and an MCP server definition.
 Zed's extension API has no equivalent for arbitrary commands, so those stay
 VS Code / Cursor only. The custom LSP requests behind them are documented in
 `LSP.md` upstream.
+
+## The semantic-tokens shim
+
+`shopware-lsp` replies to `initialize` with
+
+```json
+"semanticTokensProvider": { "legend": { "tokenModifiers": null, ... } }
+```
+
+LSP declares `SemanticTokensLegend.tokenModifiers` as a required `string[]`.
+VS Code's JavaScript client tolerates the `null`; Zed's Rust client rejects the
+whole response:
+
+```
+failed to deserialize response: data did not match any variant of
+untagged enum SemanticTokensServerCapabilities at line 1 column 2926
+```
+
+It is the only `null` in the entire initialize result. `shopware-lsp-zed`
+rewrites it to `[]` and then degrades to a raw byte pipe, so nothing else in the
+session is parsed. Install it alongside the server and point Zed at it:
+
+```json
+{
+  "lsp": {
+    "shopware-lsp": {
+      "binary": { "path": "/Users/you/.local/bin/shopware-lsp-zed" }
+    }
+  }
+}
+```
+
+Alternative without the shim: put
+
+```yaml
+features:
+  semanticTokens: false
+```
+
+in the project's `.config/shopware/lsp.yaml`. The server then omits the
+capability entirely, at the cost of semantic highlighting in every editor.
+
+Remove the shim once upstream emits `[]` instead of `null`.

@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""stdio shim around shopware-lsp that repairs one spec violation.
+
+shopware-lsp answers `initialize` with
+
+    "semanticTokensProvider": {"legend": {"tokenModifiers": null, ...}, ...}
+
+but LSP declares SemanticTokensLegend.tokenModifiers as a required string[].
+VS Code's JavaScript client tolerates the null; Zed's Rust client (lsp-types)
+rejects it and the whole server fails to initialize with
+
+    failed to deserialize response: data did not match any variant of
+    untagged enum SemanticTokensServerCapabilities
+
+This shim rewrites that one null to an empty array, then gets out of the way:
+after the fix is applied it degrades to a raw byte pipe, so no JSON is parsed
+for the rest of the session.
+"""
+
+import os
+import subprocess
+import sys
+import threading
+
+SERVER = os.environ.get(
+    "SHOPWARE_LSP_BIN", os.path.expanduser("~/.local/bin/shopware-lsp")
+)
+BAD = (b'"tokenModifiers":null', b'"tokenModifiers": null')
+GOOD = b'"tokenModifiers":[]'
+BUF = 1 << 16
+
+
+def pipe_raw(src, dst):
+    """Copy bytes until EOF, without interpreting them.
+
+    read1() is required: read() on a buffered stream blocks until it has all
+    BUF bytes, which stalls small JSON-RPC messages indefinitely.
+    """
+    read = getattr(src, "read1", src.read)
+    try:
+        while True:
+            chunk = read(BUF)
+            if not chunk:
+                break
+            dst.write(chunk)
+            dst.flush()
+    except (BrokenPipeError, ValueError, OSError):
+        pass
+
+
+def read_headers(src):
+    headers = b""
+    while not headers.endswith(b"\r\n\r\n"):
+        byte = src.read(1)
+        if not byte:
+            return None
+        headers += byte
+    return headers
+
+
+def content_length(headers):
+    for line in headers.split(b"\r\n"):
+        name, sep, value = line.partition(b":")
+        if sep and name.strip().lower() == b"content-length":
+            return int(value.strip())
+    return None
+
+
+def pipe_until_fixed(src, dst):
+    """Relay framed messages, repairing the first legend we see."""
+    while True:
+        headers = read_headers(src)
+        if headers is None:
+            return
+        length = content_length(headers)
+        if length is None:
+            dst.write(headers)
+            dst.flush()
+            continue
+
+        body = src.read(length)
+        if len(body) < length:
+            return
+
+        patched = body
+        for bad in BAD:
+            if bad in patched:
+                patched = patched.replace(bad, GOOD)
+
+        dst.write(b"Content-Length: %d\r\n\r\n" % len(patched) + patched)
+        dst.flush()
+
+        if patched is not body:
+            # Capability negotiation is over; stop framing and just copy.
+            pipe_raw(src, dst)
+            return
+
+
+def main():
+    try:
+        server = subprocess.Popen(
+            [SERVER, *sys.argv[1:]],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            # stderr is inherited so the server's log still reaches the editor.
+        )
+    except FileNotFoundError:
+        sys.stderr.write(
+            "shopware-lsp-zed: %s not found. Set SHOPWARE_LSP_BIN or run "
+            "update-server.sh.\n" % SERVER
+        )
+        return 127
+
+    to_server = threading.Thread(
+        target=pipe_raw, args=(sys.stdin.buffer, server.stdin), daemon=True
+    )
+    to_server.start()
+
+    try:
+        pipe_until_fixed(server.stdout, sys.stdout.buffer)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if server.poll() is None:
+            server.terminate()
+
+    return server.wait()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
