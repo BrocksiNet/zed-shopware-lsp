@@ -22,3 +22,15 @@ jobs:
           chmod +x server/extension/shopware-lsp
 
       - run: python3 scripts/contract-check.py --binary "$PWD/server/extension/shopware-lsp"
+
+      - name: Minimal project fixture
+        run: |
+          mkdir -p fixture/.config/shopware
+          printf 'version: 1\n' > fixture/.config/shopware/lsp.yaml
+
+      - name: Compare the upstream surface against the snapshot
+        run: |
+          python3 scripts/inventory.py --check \
+            --binary "$PWD/server/extension/shopware-lsp" \
+            --root "$PWD/fixture"
+

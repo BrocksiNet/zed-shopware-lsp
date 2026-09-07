@@ -201,6 +201,7 @@ cargo test                                     # unit tests, native target
 cargo clippy --all-targets -- -D warnings
 cargo build --release --target wasm32-wasip2   # what Zed loads
 scripts/contract-check.py                      # upstream seams, needs network
+scripts/inventory.py --check                   # new or removed upstream surface
 ```
 
 See [TESTING.md](TESTING.md) for what each layer covers and the manual Zed

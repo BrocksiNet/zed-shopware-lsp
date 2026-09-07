@@ -59,7 +59,46 @@ while still failing the run on anything else. No allowance is currently needed;
 reach for it only when upstream breaks something and you want the rest of the
 suite to keep guarding.
 
-## 3. Manual checks in Zed
+## 3. Upstream surface drift, `scripts/inventory.py`
+
+Layers 1 and 2 guard what we already know about. Neither notices *new* upstream
+surface, which is the other half of the problem: shopware-lsp gains commands,
+scaffolds and tools continuously, and some of that is work for us.
+
+```bash
+scripts/inventory.py --check    # diff against inventory/snapshot.json
+scripts/inventory.py --write    # accept the current surface as the baseline
+```
+
+`inventory/snapshot.json` is a golden file recording the protocol version,
+capability keys, code-action kinds, the 44 server commands, client commands,
+scaffold kinds, MCP tool names, feature flags and CLI commands.
+
+Most new surface needs no work, by design:
+
+| Category | Absorbed automatically because |
+|---|---|
+| scaffolds | `sw-action.py scaffold` reads the catalog live |
+| MCP tools | the context server passes through whatever the server offers |
+| client commands | our empty `supportedCommands` filters them out |
+
+Two categories are not, and those are what the gate is for:
+
+- a **new server command** may be a generator worth wiring into `sw-action.py`;
+- a **removed or renamed** command breaks an action we already ship.
+
+Exit codes: `0` unchanged, `1` breakage, `2` new surface only. CI fails on
+either non-zero. Clear an addition by reviewing it, then `--write` and commit
+the snapshot; that makes accepting new surface a deliberate, reviewable act.
+
+The list of commands we depend on is **derived from `sw-action.py` itself**
+rather than hand-kept, so the two cannot drift apart. It also checks the
+client protocol version, since a bump there makes `initialize` fail outright.
+
+The surface is project-independent, so CI runs this against a fixture holding
+nothing but `.config/shopware/lsp.yaml`.
+
+## 4. Manual checks in Zed
 
 Nothing here is automatable: it needs a running Zed with a UI.
 

@@ -70,6 +70,8 @@ impossible here.
 | `docs/mcp-settings-schema.json` | JSON schema for the context server's `settings`. Embedded with `include_str!`. |
 | `scripts/contract-check.py` | Verifies assumptions about Open VSX and the server binary. Network required. |
 | `scripts/sw-action.py` | Runs picker-based generator actions from a Zed task, since they cannot be code actions. |
+| `scripts/inventory.py` | Golden-file gate that reports new or removed upstream surface. |
+| `inventory/snapshot.json` | The accepted upstream surface. Update deliberately, never blindly. |
 | `examples/` | `tasks.json` and `keymap.json` to copy into a Shopware project. |
 | `build-server.sh` | Builds the server from a local `shopware-lsp` checkout, for testing unreleased changes. Needs Go and CGO. |
 | `update-server.sh` | Installs the published server into `~/.local/bin`. |
@@ -152,3 +154,7 @@ registry.
 - New behaviour needs a unit test if it can be expressed as a pure function,
   and a `TESTING.md` checklist entry if it can only be seen in Zed's UI.
 - Mutation-check new tests: break the code, confirm the test fails, restore.
+- When `scripts/inventory.py --check` reports new surface, decide what it means
+  before re-snapshotting. A new server command is often a generator worth
+  adding to `sw-action.py`; re-running `--write` without looking throws that
+  signal away, which is the one thing the gate exists to prevent.
