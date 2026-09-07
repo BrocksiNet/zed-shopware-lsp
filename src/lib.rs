@@ -92,10 +92,16 @@ fn mcp_args(root: Option<&str>) -> Vec<String> {
 
 /// Tell the server which editor-side commands this client implements.
 ///
-/// Zed's extension API cannot register commands, so the honest answer is none.
-/// The server then drops every command-backed code action and code lens, which
-/// is what stops ~20 generator entries appearing in the menu and doing nothing.
-/// Diagnostic quickfixes are unaffected: they carry no command.
+/// The server filters every command-backed code action *and code lens* down to
+/// this allow-list, which is what stops ~20 generator entries appearing in the
+/// menu and doing nothing. Diagnostic quickfixes are unaffected: they carry no
+/// command.
+///
+/// `shopware.openReferences` is declared even though Zed cannot execute it,
+/// because it backs all four code lenses and one of them prints the route and
+/// methods on a Store-API controller. That is worth reading without ever
+/// clicking, and omitting the command hides the text along with the action.
+/// The generator actions use different command names, so they stay filtered.
 ///
 /// `presentationProfile` stays `full` because Zed has no PHP intelligence of
 /// its own; `framework` is for hosts like PhpStorm that do.
@@ -104,7 +110,7 @@ fn default_initialization_options() -> zed::serde_json::Value {
         "shopwareClient": {
             "protocolVersion": CLIENT_PROTOCOL_VERSION,
             "presentationProfile": "full",
-            "supportedCommands": [],
+            "supportedCommands": ["shopware.openReferences"],
         }
     })
 }
@@ -493,17 +499,34 @@ mod tests {
     }
 
     #[test]
-    fn declares_no_editor_side_commands() {
-        // Claiming a command Zed cannot run brings back the dead menu entries;
-        // the empty list is what makes the server drop them.
+    fn declares_only_the_code_lens_command() {
+        // The allow-list is per command name. openReferences is in so the code
+        // lenses render; every generator command stays out so its dead menu
+        // entry never appears.
         let options = default_initialization_options();
         let client = &options["shopwareClient"];
         assert_eq!(client["protocolVersion"], 1);
         assert_eq!(client["presentationProfile"], "full");
-        assert_eq!(
-            client["supportedCommands"].as_array().map(Vec::len),
-            Some(0)
-        );
+
+        let commands: Vec<&str> = client["supportedCommands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect();
+        assert_eq!(commands, ["shopware.openReferences"]);
+
+        for generator in [
+            "shopware.insertSnippet",
+            "shopware.twig.extendBlock",
+            "shopware.symfony.generateService",
+            "shopware.admin.extendComponent",
+        ] {
+            assert!(
+                !commands.contains(&generator),
+                "{generator} would resurrect a menu entry that cannot work"
+            );
+        }
     }
 
     #[test]

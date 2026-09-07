@@ -215,16 +215,13 @@ context server pointed straight at the binary.
 | `yamlValidation` for `lsp.yaml` | via `examples/settings.json`, pointing at the server's own schema |
 | 23 `shopware.*` palette commands | no palette; 13 equivalents as tasks |
 | Explorer and editor context menus | no, Zed has no extension menu API |
-| Code lenses | Zed renders them, but our `supportedCommands: []` filters all four away. See [Code lenses](#code-lenses) |
+| Code lenses | yes, text renders; clicking does nothing. See [Code lenses](#code-lenses) |
 | Entity designer, Twig block diff viewer | no, needs custom UI |
 
 ### Code lenses
 
-Zed does declare code-lens capabilities, so this is a deliberate trade-off
-rather than a missing feature. Every lens the server emits is backed by the
-client-side `shopware.openReferences` command, so the empty `supportedCommands`
-that removes the dead generator entries removes these too. On a Store-API
-controller that costs four:
+Zed renders code lenses, and the extension declares `shopware.openReferences`
+so they show. On a Store-API controller that is four:
 
 ```
 Open Service Definition
@@ -233,23 +230,25 @@ POST|GET /store-api/product/{productId} · store-api.product.detail
 Open route definition
 ```
 
-The third is pure information and genuinely useful. The others are navigation
-that cannot work here. To get them back, accepting that clicking one fails:
+The third is pure information and worth reading without ever clicking, which
+is why the command is declared even though Zed cannot execute it. **Clicking a
+lens does nothing useful**; the value is the text.
+
+`supportedCommands` is matched per command name, so this leaves all ~20
+generator code actions filtered. To hide the lenses instead:
 
 ```json
 {
   "lsp": {
     "shopware-lsp": {
       "initialization_options": {
-        "shopwareClient": { "supportedCommands": ["shopware.openReferences"] }
+        "shopwareClient": { "supportedCommands": [] }
       }
     }
   }
 }
 ```
 
-`supportedCommands` is matched per command name, so declaring just this one
-leaves the ~20 generator code actions filtered.
 
 Everything the language server itself provides — completion, hover,
 definitions, references, diagnostics, quickfixes, organize-imports, semantic

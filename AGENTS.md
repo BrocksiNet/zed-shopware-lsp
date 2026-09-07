@@ -37,7 +37,10 @@ impossible here.
   The server supports a negotiation for exactly this:
   `initializationOptions.shopwareClient.supportedCommands` is an allow-list,
   and the server drops every command-backed code action and code lens the
-  client cannot execute. We send an empty list, so those entries never appear.
+  client cannot execute. We declare exactly one, `shopware.openReferences`:
+  it backs all four code lenses, one of which prints a controller's route,
+  and omitting it hides that text along with the unusable click. Every
+  generator command stays out, so their menu entries never appear.
   Diagnostic quickfixes are unaffected, since they carry no command.
 
   `presentationProfile` stays `full`; `framework` is for hosts with their own
