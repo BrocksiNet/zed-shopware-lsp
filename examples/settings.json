@@ -28,6 +28,14 @@
   },
   "languages": {
     "PHP": {
+      // Pick one PHP server. Zed's "..." wildcard automatically enables any
+      // newly registered server for a language, so installing this extension
+      // alongside phpactor or intelephense gives you two, and every code
+      // action and completion appears twice.
+      //
+      // Your list replaces Zed's default entirely, so name with "!" anything
+      // you want off, including servers Zed disables by default.
+      "language_servers": ["shopware-lsp", "!phpactor", "!intelephense", "..."],
       // Organize imports is one of the few code actions that works in a
       // generic client. Add your own formatter as a second entry.
       "formatter": [{ "code_action": "source.organizeImports" }],

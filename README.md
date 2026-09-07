@@ -172,6 +172,33 @@ generic client:
 second array element if you have one.
 
 
+## Running alongside another PHP server
+
+The extension registers `shopware-lsp` for PHP, and Zed's `"..."` wildcard in
+`language_servers` automatically picks up newly registered servers. If you
+already run phpactor or intelephense, you now have two, and code actions and
+completions appear twice.
+
+```json
+{
+  "languages": {
+    "PHP": {
+      "language_servers": ["shopware-lsp", "!phpactor", "!intelephense", "..."]
+    }
+  }
+}
+```
+
+Your list replaces Zed's default entirely, so name with `!` anything you want
+off, including servers Zed disables by default.
+
+Worth knowing before you choose: phpactor reports `Method "getIterator" does
+not exist` on Shopware collections, tripping over
+`@extends EntityCollection<CmsBlockEntity>` generics, and offers a quick fix
+that would damage the file. shopware-lsp reports nothing on the same file and
+understands config keys, feature flags, routes and snippets besides. It also
+needs no PHP runtime, so there is no container round-trip.
+
 ## Agent Panel tools (MCP)
 
 The extension also registers the server's MCP endpoint as a context server, so
