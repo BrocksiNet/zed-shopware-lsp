@@ -5,10 +5,6 @@
 # current server is pulled out of the Open VSX .vsix instead.
 set -euo pipefail
 
-# WARNING: this installs the PUBLISHED binary, which still answers initialize
-# with "tokenModifiers": null and therefore does not work in Zed. Use
-# build-server.sh instead unless you also keep the shim in place.
-
 DEST="${DEST:-$HOME/.local/bin}"
 
 case "$(uname -s)-$(uname -m)" in

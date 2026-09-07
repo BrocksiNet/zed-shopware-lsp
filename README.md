@@ -20,10 +20,6 @@ first use. No manual binary install.
 Also install the **Twig** extension from Zed's registry. Without it `.twig`
 files get no languageId and the server is never attached to them.
 
-> **Heads up:** the currently published server cannot initialize in Zed. See
-> [Known issue](#known-issue-published-server-fails-to-initialize) before you
-> rely on the automatic download.
-
 Building from source instead requires Rust with the `wasm32-wasip2` target:
 
 ```bash
@@ -39,9 +35,9 @@ In order, first hit wins:
 2. a `shopware-lsp` on `PATH`
 3. a managed download from Open VSX into the extension's work directory
 
-A local build therefore always beats the download, which is what you want while
-waiting on an upstream fix. Superseded downloads are pruned, since each server
-is roughly 31 MB.
+A local build therefore always beats the download, which is what you want when
+testing an unreleased server change via `build-server.sh`. Superseded downloads
+are pruned, since each server is roughly 31 MB.
 
 Platform builds cover macOS and Linux on arm64/x64 plus Windows x64. musl is not
 detectable through the extension API, so Alpine users should point
@@ -87,43 +83,6 @@ generic client:
 `formatter` replaces rather than merges, so add your existing formatter as a
 second array element if you have one.
 
-## Known issue: published server fails to initialize
-
-The published server answers `initialize` with
-
-```json
-"semanticTokensProvider": { "legend": { "tokenModifiers": null, ... } }
-```
-
-`SemanticTokensLegend.tokenModifiers` is a required `string[]` in the LSP
-specification. VS Code's JavaScript client coerces the `null`; Zed's Rust client
-rejects the entire response:
-
-```
-failed to deserialize response: data did not match any variant of
-untagged enum SemanticTokensServerCapabilities at line 1 column 2926
-```
-
-Every feature is lost, not just semantic highlighting. Fixed upstream in
-[shopware/shopware-lsp#59](https://github.com/shopware/shopware-lsp/pull/59);
-until that ships in a release, use one of:
-
-- **Build the server yourself** with `./build-server.sh` (needs Go and CGO). It
-  installs to `~/.local/bin`, which resolution step 2 picks up automatically.
-- **Use the shim.** `shopware-lsp-zed` is a stdio proxy that rewrites the one
-  `null` to `[]` and then degrades to a raw byte pipe. Point
-  `binary.path` at it.
-- **Disable the capability** by putting this in the project's
-  `.config/shopware/lsp.yaml`, at the cost of semantic highlighting everywhere:
-
-  ```yaml
-  version: 1
-  features:
-    semanticTokens: false
-  ```
-
-  `version: 1` is mandatory. Without it the server rejects the file with
-  "configuration version is required".
 
 ## Agent Panel tools (MCP)
 
@@ -165,9 +124,8 @@ context server pointed straight at the binary.
 | `src/lib.rs` | The entire extension. Pure helpers, then `impl zed::Extension`, then unit tests |
 | `docs/` | Markdown and JSON schema shown in Zed's context-server UI, embedded via `include_str!` |
 | `scripts/contract-check.py` | Verifies assumptions about Open VSX and the server binary |
-| `build-server.sh` | Builds the server from a local checkout. Needs Go and CGO |
-| `update-server.sh` | Installs the published server. Currently yields a build Zed cannot use |
-| `shopware-lsp-zed` | Retired stdio shim that patched the `tokenModifiers` null |
+| `build-server.sh` | Builds the server from a local checkout, for unreleased changes. Needs Go and CGO |
+| `update-server.sh` | Installs the published server into `~/.local/bin` |
 | `AGENTS.md` | Architecture, constraints, and conventions for contributors and agents |
 | `TESTING.md` | The three-layer test plan and the manual Zed checklist |
 

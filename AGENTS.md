@@ -61,9 +61,8 @@ impossible here.
 | `scripts/contract-check.py` | Verifies assumptions about Open VSX and the server binary. Network required. |
 | `scripts/sw-action.py` | Runs picker-based generator actions from a Zed task, since they cannot be code actions. |
 | `examples/` | `tasks.json` and `keymap.json` to copy into a Shopware project. |
-| `build-server.sh` | Builds the server from a local `shopware-lsp` checkout. Needs Go and CGO. |
-| `update-server.sh` | Installs the *published* server. Currently produces a build that cannot initialize in Zed; prefer `build-server.sh`. |
-| `shopware-lsp-zed` | Retired Python stdio shim that patched the `tokenModifiers` null. Kept as a fallback for anyone on a published binary. |
+| `build-server.sh` | Builds the server from a local `shopware-lsp` checkout, for testing unreleased changes. Needs Go and CGO. |
+| `update-server.sh` | Installs the published server into `~/.local/bin`. |
 | `TESTING.md` | The three-layer test plan and the manual Zed checklist. |
 
 Editing `docs/*` changes compiled output, because those files are embedded.
@@ -116,12 +115,13 @@ registry.
   reverse is rejected.
 - **`.config/shopware/lsp.yaml` requires `version: 1`.** Without it the server
   refuses the file with "configuration version is required".
-- **The published server cannot initialize in Zed.** It sends
+- **Servers before 0.3.53 cannot initialize in Zed.** They sent
   `legend.tokenModifiers: null` where LSP requires `string[]`, and Zed's client
-  rejects the entire response. Fixed in
-  [shopware/shopware-lsp#59](https://github.com/shopware/shopware-lsp/pull/59),
-  unreleased. The contract check asserts this and is expected to fail against
-  published builds until then.
+  rejected the entire response. Fixed by
+  [shopware/shopware-lsp#59](https://github.com/shopware/shopware-lsp/pull/59)
+  and released in **0.3.53**; the contract check asserts it and now passes
+  against published builds. If it ever fails again, that is a regression, not
+  an expected state.
 - **Do not run `vsix-preview.yml` in the upstream repo.** Its `workflow_dispatch`
   path ends in a `publish` job that pushes to the VS Code Marketplace and
   Open VSX.
