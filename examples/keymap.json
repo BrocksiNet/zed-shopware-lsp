@@ -8,7 +8,16 @@
       "alt-shift-f": [
         "task::Spawn",
         { "task_name": "Shopware: generate Twig form rows" }
-      ]
+      ],
+      "alt-shift-s": [
+        "task::Spawn",
+        { "task_name": "Shopware: create storefront snippet" }
+      ],
+      "alt-shift-o": [
+        "task::Spawn",
+        { "task_name": "Shopware: override storefront block" }
+      ],
+      "alt-shift-i": ["task::Spawn", { "task_name": "Shopware: Twig block diff" }]
     }
   },
   {

@@ -11,15 +11,23 @@ commands, so this script does the picker in a terminal and the writing on disk,
 driven from a Zed task.
 
 Usage:
-    sw-action.py list
-    sw-action.py twig-extends      <file> [row]
-    sw-action.py twig-blocks       <file> [row]
-    sw-action.py form-fields       <file> [row]
-    sw-action.py twig-form-fields  <file> [row]
-    sw-action.py scaffold          [directory]
+    sw-action.py list                          every action with a one-liner
+    sw-action.py twig-extends        <file> [row]
+    sw-action.py twig-blocks         <file> [row]
+    sw-action.py twig-form-fields    <file> [row]
+    sw-action.py form-fields         <file>
+    sw-action.py snippet             <file>        storefront translation
+    sw-action.py snippet-admin       <file>        administration translation
+    sw-action.py twig-extend-block   <file> [row]
+    sw-action.py admin-twig-override <file> [row]
+    sw-action.py twig-block-diff     <file> [row]  read-only
+    sw-action.py scaffold            [directory]
 
-`row` is 1-based and defaults to the top of the file; Zed passes $ZED_ROW.
-`--print` shows what would happen instead of writing.
+`row` is 1-based and defaults to the top of the file; Zed passes $ZED_ROW. It
+selects which Twig block the pickers offer first.
+
+`--print` shows what would happen instead of writing. Prompts can be skipped
+with --key, --value, --block, --extension, --name, --class and --option.
 """
 
 import argparse
@@ -114,8 +122,20 @@ def resolve_class(binary, root, path):
     return choose(found, "class", False)[0]
 
 
+# Actions with a bespoke flow rather than the candidates/generate shape.
+OTHER_ACTIONS = {
+    "twig-form-fields": "Generate Twig form rows",
+    "scaffold": "Create any of the server's scaffolds",
+    "snippet": "Create a storefront snippet",
+    "snippet-admin": "Create an Administration snippet",
+    "twig-extend-block": "Override a storefront block in an extension",
+    "admin-twig-override": "Override an Administration Twig block",
+    "twig-block-diff": "Show an override against its upstream block",
+}
+
+
 def action_names():
-    return sorted(SNIPPET_ACTIONS) + ["scaffold", "twig-form-fields"]
+    return sorted(SNIPPET_ACTIONS) + sorted(OTHER_ACTIONS)
 
 
 def server_binary():
@@ -275,6 +295,177 @@ def run_twig_form_fields(args, binary):
 
 def uri_to_path(uri):
     return uri[len("file://") :] if uri.startswith("file://") else uri
+
+
+def twig_blocks(path, row):
+    """Block names declared in a Twig file, nearest to `row` first.
+
+    Twig has no document symbols, so this reads the declarations directly.
+    Ordering by proximity puts the block the cursor sits in at the top, which
+    is what the VS Code code action would have acted on.
+    """
+    import re
+
+    found = []
+    with open(path, encoding="utf-8") as handle:
+        for number, line in enumerate(handle, 1):
+            for match in re.finditer(r"{%-?\s*block\s+([A-Za-z0-9_]+)", line):
+                found.append((number, match.group(1)))
+    if not found:
+        sys.exit(f"no Twig blocks found in {os.path.basename(path)}")
+
+    before = [entry for entry in found if entry[0] <= row]
+    ordered = list(reversed(before)) + [entry for entry in found if entry[0] > row]
+    return [f"{name}  (line {number})" for number, name in ordered]
+
+
+def pick_block(args, path):
+    if args.block:
+        return args.block
+    chosen = choose(twig_blocks(path, args.row), "block", False)[0]
+    return chosen.split("  (line")[0]
+
+
+def pick_extension(args, binary, root):
+    if args.extension:
+        return args.extension
+    listed = execute(binary, root, "shopware/extension/all", {})
+    if not isinstance(listed, list) or not listed:
+        sys.exit("no Shopware extensions found in this workspace")
+    # Type 0 is a plugin or bundle, 1 an app. Only the former has storefront
+    # views, so show it and let the user judge.
+    labels = [
+        "{}  ({})".format(
+            entry.get("Name", "?"), "app" if entry.get("Type") == 1 else "plugin"
+        )
+        for entry in listed
+    ]
+    return choose(labels, "extension", False)[0].split("  (")[0]
+
+
+def run_snippet_create(args, binary, domain):
+    """Create a translation snippet in one or more snippet files."""
+    path = os.path.abspath(args.target)
+    if not os.path.isfile(path):
+        sys.exit(f"not a file: {path}")
+
+    key = args.key or input("snippet key: ").strip()
+    if not key:
+        sys.exit("a snippet key is required")
+
+    listed = execute(
+        binary,
+        args.root,
+        f"shopware/snippet/{domain}/getPossibleSnippetFiles",
+        {"fileUri": "file://" + path},
+    )
+    paths = (listed or {}).get("paths") or []
+    if not paths:
+        sys.exit(f"no {domain} snippet files found or creatable for this file")
+
+    labels = [
+        "{}  ({})".format(entry.get("name", "?"), entry.get("path", "")) for entry in paths
+    ]
+    picked = choose(labels, "snippet files", True)
+    chosen = [paths[labels.index(label)] for label in picked]
+
+    value = args.value if args.value is not None else input(f"value for {key}: ")
+
+    # `create` writes nothing itself: it answers with a WorkspaceEdit for the
+    # client to apply. LSP.md still documents this as returning null.
+    result = execute(
+        binary,
+        args.root,
+        f"shopware/snippet/{domain}/create",
+        {
+            "fileUri": "file://" + path,
+            "snippetKey": key,
+            "snippets": [
+                {"path": entry["path"], "name": entry.get("name", ""), "value": value}
+                for entry in chosen
+            ],
+        },
+    )
+    edit = (result or {}).get("edit")
+    if not edit:
+        sys.exit(f"the server returned no edit for {key!r}: {json.dumps(result)[:200]}")
+
+    print(f"{key!r} = {value!r}")
+    apply_workspace_edit(edit, args.print_only, args.root)
+
+
+def run_twig_extend_block(args, binary):
+    """Create a storefront block override in a chosen extension."""
+    path = os.path.abspath(args.target)
+    if not os.path.isfile(path):
+        sys.exit(f"not a file: {path}")
+
+    block = pick_block(args, path)
+    extension = pick_extension(args, binary, args.root)
+
+    # Returns {uri, line, edit}. LSP.md documents only {uri, line}, but the
+    # edit is the part that actually changes anything, so it must be applied.
+    result = execute(
+        binary,
+        args.root,
+        "shopware/twig/extendBlock",
+        {"textUri": "file://" + path, "blockName": block, "extension": extension},
+    )
+    if not isinstance(result, dict) or result.get("message"):
+        sys.exit(f"server refused: {(result or {}).get('message', result)}")
+
+    print(f"override for {block!r} in {extension}:")
+    edit = result.get("edit")
+    if edit:
+        apply_workspace_edit(edit, args.print_only, args.root)
+    target = uri_to_path(result.get("uri", ""))
+    if target:
+        print(f"  block at {relative(target, args.root)}:{result.get('line', 1)}")
+
+
+def run_admin_twig_override(args, binary):
+    """Administration Twig block override; the server answers with an edit."""
+    path = os.path.abspath(args.target)
+    if not os.path.isfile(path):
+        sys.exit(f"not a file: {path}")
+
+    block = pick_block(args, path)
+    extension = pick_extension(args, binary, args.root)
+
+    result = execute(
+        binary,
+        args.root,
+        "shopware/admin/twig/override",
+        {"textUri": "file://" + path, "blockName": block, "extension": extension},
+    )
+    if not isinstance(result, dict) or result.get("message"):
+        sys.exit(f"server refused: {(result or {}).get('message', result)}")
+
+    print(f"admin override for {block!r} in {extension}:")
+    edit = result.get("edit")
+    if edit:
+        apply_workspace_edit(edit, args.print_only, args.root)
+    component = result.get("component")
+    if component:
+        print(f"  component: {component}")
+
+
+def run_twig_block_diff(args, binary):
+    """Read-only: show how an override differs from its upstream block."""
+    path = os.path.abspath(args.target)
+    if not os.path.isfile(path):
+        sys.exit(f"not a file: {path}")
+
+    block = pick_block(args, path)
+    result = execute(
+        binary,
+        args.root,
+        "shopware/twig/getBlockDiff",
+        {"textUri": "file://" + path, "blockName": block},
+    )
+    if isinstance(result, dict) and result.get("message"):
+        sys.exit(f"server refused: {result['message']}")
+    print(json.dumps(result, indent=2) if not isinstance(result, str) else result)
 
 
 def apply_workspace_edit(edit, dry_run, root):
@@ -440,6 +631,10 @@ def main():
         "--root", default=os.environ.get("ZED_WORKTREE_ROOT") or os.getcwd()
     )
     parser.add_argument("--name", help="scaffold name, skips the prompt")
+    parser.add_argument("--key", help="snippet key, skips the prompt")
+    parser.add_argument("--value", help="snippet value, skips the prompt")
+    parser.add_argument("--block", help="Twig block name, skips the picker")
+    parser.add_argument("--extension", help="extension name, skips the picker")
     parser.add_argument(
         "--class",
         dest="class_name",
@@ -468,9 +663,9 @@ def main():
 
     if args.action == "list":
         for name in sorted(SNIPPET_ACTIONS):
-            print(f"  {name:18} {SNIPPET_ACTIONS[name]['label']}")
-        print(f"  {'twig-form-fields':18} Generate Twig form rows")
-        print(f"  {'scaffold':18} Create any of the server's scaffolds")
+            print(f"  {name:20} {SNIPPET_ACTIONS[name]['label']}")
+        for name in sorted(OTHER_ACTIONS):
+            print(f"  {name:20} {OTHER_ACTIONS[name]}")
         return
 
     binary = server_binary()
@@ -482,8 +677,17 @@ def main():
     if not args.target:
         sys.exit(f"{args.action} needs a file")
 
-    if args.action == "twig-form-fields":
-        run_twig_form_fields(args, binary)
+    handlers = {
+        "twig-form-fields": run_twig_form_fields,
+        "twig-extend-block": run_twig_extend_block,
+        "admin-twig-override": run_admin_twig_override,
+        "twig-block-diff": run_twig_block_diff,
+        "snippet": lambda a, b: run_snippet_create(a, b, "storefront"),
+        "snippet-admin": lambda a, b: run_snippet_create(a, b, "admin"),
+    }
+    handler = handlers.get(args.action)
+    if handler:
+        handler(args, binary)
         return
 
     run_snippet_action(SNIPPET_ACTIONS[args.action], args, binary)

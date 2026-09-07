@@ -151,6 +151,11 @@ when installed and falls back to a numbered prompt.
 | `twig-blocks` | Pick parent blocks, insert overrides | verified |
 | `form-fields` | Pick fields off the data class, rewrite the FormType | verified |
 | `scaffold` | Any of the server's 24 scaffolds | verified, 23 kinds |
+| `snippet` | Create a storefront translation in chosen snippet files | verified |
+| `snippet-admin` | Same for Administration snippets | verified |
+| `twig-extend-block` | Override a storefront block in an extension | verified |
+| `admin-twig-override` | Override an admin block, and register it in `main.js` | verified |
+| `twig-block-diff` | Show an override against its upstream block | read-only |
 | `twig-form-fields` | Insert Twig form rows | **unverified** |
 
 `scaffold` covers both families: the `symfony` kinds return a single file, the
@@ -164,6 +169,10 @@ Some kinds need an extra option, for example
 `event`, `hook`, `icon`, `label`, `license`, `method`, `methodGroup`, `mode`,
 `namespace`, `package`, `parameters`, `target`, `taskName`, `timestamp`,
 `type`.
+
+`twig-block-diff` only answers for an override that carries a version
+comment; on a core template the server replies "No version comment found for
+block", which the script surfaces as-is.
 
 Two deliberate gaps. The `entity-definition` scaffold is a multi-step
 bootstrap/preview/apply workflow, so the script points you at the

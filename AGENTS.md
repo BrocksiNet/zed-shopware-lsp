@@ -122,6 +122,12 @@ registry.
   and released in **0.3.53**; the contract check asserts it and now passes
   against published builds. If it ever fails again, that is a regression, not
   an expected state.
+- **`LSP.md` upstream is stale about return values.** It documents
+  `shopware/snippet/*/create` as returning `null` and
+  `shopware/twig/extendBlock` as returning `{uri, line}`. Both actually return
+  a `WorkspaceEdit` the client must apply, and nothing is written server-side.
+  Trusting the doc produces a command that reports success and changes no
+  files. Read the handler in `internal/lsp/commands/` before wiring a new one.
 - **Do not run `vsix-preview.yml` in the upstream repo.** Its `workflow_dispatch`
   path ends in a `publish` job that pushes to the VS Code Marketplace and
   Open VSX.
