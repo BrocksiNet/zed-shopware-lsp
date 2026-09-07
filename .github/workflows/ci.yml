@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Format, lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup target add wasm32-wasip2
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --check
+
+      # Native target: the host bindings compile, so pure logic is testable.
+      - run: cargo clippy --all-targets -- -D warnings
+
+      - run: cargo test
+
+      # The artifact Zed actually loads.
+      - run: cargo build --release --target wasm32-wasip2
+
+      - name: Check the wasm component was produced
+        run: test -s target/wasm32-wasip2/release/zed_shopware_lsp.wasm
+
+  contracts:
+    name: Upstream contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch the published server
+        run: |
+          url="$(curl -fsSL https://open-vsx.org/api/shopware/shopware-lsp/linux-x64/latest \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["download"])')"
+          curl -fsSL -o server.vsix "$url"
+          unzip -q server.vsix -d server
+          chmod +x server/extension/shopware-lsp
+
+      # Expected to fail the tokenModifiers check until
+      # shopware/shopware-lsp#59 ships in a release.
+      - run: python3 scripts/contract-check.py --binary "$PWD/server/extension/shopware-lsp"
+        continue-on-error: true

@@ -26,19 +26,22 @@ struct ShopwareLspExtension {
 }
 
 /// Where the binary lives inside the downloaded `.vsix`, which is a plain zip.
-fn binary_path_in(dir: &str) -> String {
-    match zed::current_platform().0 {
+fn binary_path_for(dir: &str, os: Os) -> String {
+    match os {
         Os::Windows => format!("{dir}/extension/{SERVER_NAME}.exe"),
         _ => format!("{dir}/extension/{SERVER_NAME}"),
     }
 }
 
-/// Map Zed's platform to an Open VSX target triple.
+fn binary_path_in(dir: &str) -> String {
+    binary_path_for(dir, zed::current_platform().0)
+}
+
+/// Map a platform to an Open VSX target triple.
 ///
 /// musl is deliberately absent: the extension API cannot tell glibc from musl,
 /// so Alpine users have to point `binary.path` at an `alpine-*` build themselves.
-fn open_vsx_target() -> Result<&'static str> {
-    let (os, arch) = zed::current_platform();
+fn target_for(os: Os, arch: Architecture) -> Result<&'static str> {
     match (os, arch) {
         (Os::Mac, Architecture::Aarch64) => Ok("darwin-arm64"),
         (Os::Mac, Architecture::X8664) => Ok("darwin-x64"),
@@ -52,6 +55,47 @@ fn open_vsx_target() -> Result<&'static str> {
     }
 }
 
+fn open_vsx_target() -> Result<&'static str> {
+    let (os, arch) = zed::current_platform();
+    target_for(os, arch)
+}
+
+/// Read the version and artifact URL out of an Open VSX `/latest` payload.
+fn parse_latest_release(target: &str, body: &[u8]) -> Result<(String, String)> {
+    let payload: zed::serde_json::Value = zed::serde_json::from_slice(body)
+        .map_err(|err| format!("Open VSX returned malformed JSON: {err}"))?;
+
+    let version = payload["version"]
+        .as_str()
+        .ok_or_else(|| "Open VSX response has no version".to_string())?;
+    let url = payload["files"]["download"]
+        .as_str()
+        .ok_or_else(|| format!("Open VSX has no download for {target}"))?;
+
+    Ok((version.to_string(), url.to_string()))
+}
+
+/// Argument vector for the MCP server.
+///
+/// Global flags have to precede the subcommand; the binary rejects
+/// `mcp -root ...` with "mcp takes no arguments".
+fn mcp_args(root: Option<&str>) -> Vec<String> {
+    match root {
+        Some(root) => vec!["-root".into(), root.into(), "mcp".into()],
+        None => vec!["mcp".into()],
+    }
+}
+
+/// Whether a work-dir entry is an older managed download.
+///
+/// Deliberately requires the `shopware-lsp-` prefix rather than `shopware-lsp`,
+/// so a binary someone dropped into the work directory is never deleted.
+fn is_superseded_download(name: &str, keep: &str) -> bool {
+    name.strip_prefix(SERVER_NAME)
+        .is_some_and(|rest| rest.starts_with('-'))
+        && name != keep
+}
+
 impl ShopwareLspExtension {
     /// Ask Open VSX for the newest build for this platform.
     fn latest_release(target: &str) -> Result<(String, String)> {
@@ -63,17 +107,7 @@ impl ShopwareLspExtension {
             .build()?
             .fetch()?;
 
-        let payload: zed::serde_json::Value = zed::serde_json::from_slice(&response.body)
-            .map_err(|err| format!("Open VSX returned malformed JSON: {err}"))?;
-
-        let version = payload["version"]
-            .as_str()
-            .ok_or_else(|| "Open VSX response has no version".to_string())?;
-        let url = payload["files"]["download"]
-            .as_str()
-            .ok_or_else(|| format!("Open VSX has no download for {target}"))?;
-
-        Ok((version.to_string(), url.to_string()))
+        parse_latest_release(target, &response.body)
     }
 
     /// Download the server on demand, reusing an existing copy when possible.
@@ -142,8 +176,7 @@ impl ShopwareLspExtension {
 
         for entry in entries.flatten() {
             let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if name.starts_with(SERVER_NAME) && name != keep {
+            if is_superseded_download(&name.to_string_lossy(), keep) {
                 fs::remove_dir_all(entry.path()).ok();
             }
         }
@@ -264,11 +297,7 @@ impl zed::Extension for ShopwareLspExtension {
             .map(str::to_string)
             .or_else(|| self.cached_worktree_root.clone());
 
-        // Global flags have to precede the subcommand.
-        let args = match root {
-            Some(root) => vec!["-root".into(), root, "mcp".into()],
-            None => vec!["mcp".into()],
-        };
+        let args = mcp_args(root.as_deref());
 
         Ok(zed::Command {
             command: self.download_server(None)?,
@@ -294,3 +323,137 @@ impl zed::Extension for ShopwareLspExtension {
 }
 
 zed::register_extension!(ShopwareLspExtension);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Fixture trimmed from a real https://open-vsx.org/api/.../latest response.
+    const LATEST_JSON: &[u8] = br#"{
+        "namespace": "shopware",
+        "name": "shopware-lsp",
+        "version": "0.3.52",
+        "targetPlatform": "darwin-arm64",
+        "files": {
+            "download": "https://open-vsx.org/api/shopware/shopware-lsp/darwin-arm64/0.3.52/file/shopware.shopware-lsp-0.3.52@darwin-arm64.vsix",
+            "manifest": "https://open-vsx.org/api/shopware/shopware-lsp/darwin-arm64/0.3.52/file/package.json"
+        }
+    }"#;
+
+    #[test]
+    fn maps_every_published_platform_to_its_open_vsx_target() {
+        // These strings are a wire contract with Open VSX. A typo here is a
+        // download that 404s on someone else's machine.
+        assert_eq!(
+            target_for(Os::Mac, Architecture::Aarch64),
+            Ok("darwin-arm64")
+        );
+        assert_eq!(target_for(Os::Mac, Architecture::X8664), Ok("darwin-x64"));
+        assert_eq!(
+            target_for(Os::Linux, Architecture::Aarch64),
+            Ok("linux-arm64")
+        );
+        assert_eq!(target_for(Os::Linux, Architecture::X8664), Ok("linux-x64"));
+        assert_eq!(
+            target_for(Os::Windows, Architecture::X8664),
+            Ok("win32-x64")
+        );
+    }
+
+    #[test]
+    fn rejects_platforms_without_a_published_build() {
+        // No 32-bit builds exist, and Windows on ARM is not published either.
+        for (os, arch) in [
+            (Os::Mac, Architecture::X86),
+            (Os::Linux, Architecture::X86),
+            (Os::Windows, Architecture::X86),
+            (Os::Windows, Architecture::Aarch64),
+        ] {
+            let error = target_for(os, arch).expect_err("must not invent a target");
+            assert!(
+                error.contains("binary.path"),
+                "the error has to name the escape hatch, got: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn locates_the_binary_inside_the_vsix() {
+        // The vsix puts everything under extension/; the archive root only
+        // holds extension.vsixmanifest and [Content_Types].xml.
+        assert_eq!(
+            binary_path_for("shopware-lsp-0.3.52-darwin-arm64", Os::Mac),
+            "shopware-lsp-0.3.52-darwin-arm64/extension/shopware-lsp"
+        );
+        assert_eq!(
+            binary_path_for("dir", Os::Linux),
+            "dir/extension/shopware-lsp"
+        );
+        assert_eq!(
+            binary_path_for("dir", Os::Windows),
+            "dir/extension/shopware-lsp.exe"
+        );
+    }
+
+    #[test]
+    fn reads_version_and_download_url_from_open_vsx() {
+        let (version, url) = parse_latest_release("darwin-arm64", LATEST_JSON).unwrap();
+        assert_eq!(version, "0.3.52");
+        assert!(url.ends_with("@darwin-arm64.vsix"), "got {url}");
+    }
+
+    #[test]
+    fn reports_which_part_of_the_open_vsx_payload_is_missing() {
+        let err = parse_latest_release("darwin-arm64", b"not json").unwrap_err();
+        assert!(err.contains("malformed JSON"), "got {err}");
+
+        let err = parse_latest_release("darwin-arm64", br#"{"files":{"download":"u"}}"#)
+            .expect_err("a payload without a version must fail");
+        assert!(err.contains("version"), "got {err}");
+
+        let err = parse_latest_release("linux-x64", br#"{"version":"1.0.0","files":{}}"#)
+            .expect_err("a payload without a download must fail");
+        assert!(
+            err.contains("linux-x64"),
+            "the error has to name the target, got: {err}"
+        );
+    }
+
+    #[test]
+    fn passes_the_root_before_the_mcp_subcommand() {
+        // `mcp -root x` is rejected by the binary: "mcp takes no arguments;
+        // use -root before the command".
+        assert_eq!(
+            mcp_args(Some("/srv/shop")),
+            vec!["-root", "/srv/shop", "mcp"]
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_working_directory_without_a_known_root() {
+        assert_eq!(mcp_args(None), vec!["mcp"]);
+    }
+
+    #[test]
+    fn prunes_only_older_managed_downloads() {
+        let keep = "shopware-lsp-0.3.52-darwin-arm64";
+
+        assert!(is_superseded_download(
+            "shopware-lsp-0.3.50-darwin-arm64",
+            keep
+        ));
+        assert!(is_superseded_download(
+            "shopware-lsp-0.3.52-linux-x64",
+            keep
+        ));
+
+        assert!(
+            !is_superseded_download(keep, keep),
+            "must keep the current version"
+        );
+        // A binary dropped into the work dir by hand, and unrelated neighbours.
+        assert!(!is_superseded_download("shopware-lsp", keep));
+        assert!(!is_superseded_download("shopware-lsp.exe", keep));
+        assert!(!is_superseded_download("some-other-server-1.0", keep));
+    }
+}

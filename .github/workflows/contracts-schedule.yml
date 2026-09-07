@@ -1,0 +1,24 @@
+name: Upstream contract drift
+
+# The published server and the Open VSX API are outside this repo. Poll them so
+# a breaking change upstream surfaces here rather than in someone's editor.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch the published server
+        run: |
+          url="$(curl -fsSL https://open-vsx.org/api/shopware/shopware-lsp/linux-x64/latest \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["files"]["download"])')"
+          curl -fsSL -o server.vsix "$url"
+          unzip -q server.vsix -d server
+          chmod +x server/extension/shopware-lsp
+
+      - run: python3 scripts/contract-check.py --binary "$PWD/server/extension/shopware-lsp"

@@ -117,9 +117,13 @@ until that ships in a release, use one of:
   `.config/shopware/lsp.yaml`, at the cost of semantic highlighting everywhere:
 
   ```yaml
+  version: 1
   features:
     semanticTokens: false
   ```
+
+  `version: 1` is mandatory. Without it the server rejects the file with
+  "configuration version is required".
 
 ## Agent Panel tools (MCP)
 
@@ -152,6 +156,18 @@ Zed intends to deprecate MCP server extensions in favour of the official MCP
 registry ([zed#59351](https://github.com/zed-industries/zed/issues/59351)). If
 that lands before this is rewritten, the same server still works as a custom
 context server pointed straight at the binary.
+
+## Development
+
+```bash
+cargo test                                     # unit tests, native target
+cargo clippy --all-targets -- -D warnings
+cargo build --release --target wasm32-wasip2   # what Zed loads
+scripts/contract-check.py                      # upstream seams, needs network
+```
+
+See [TESTING.md](TESTING.md) for what each layer covers and the manual Zed
+checklist.
 
 ## Limitations
 
