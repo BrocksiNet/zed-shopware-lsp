@@ -298,7 +298,7 @@ when installed and falls back to a numbered prompt.
 | `service-definition` | Render a service definition, arguments resolved from the index | verified |
 | `compiler-pass` | Create a compiler pass and register it in the bundle | verified |
 | `translation-extract` | Replace Twig text with a key, add it to every locale file | verified |
-| `twig-form-fields` | Insert Twig form rows | **unverified** |
+| `twig-form-fields` | Pick a form variable and its fields, insert `form_row` calls | verified |
 
 `scaffold` covers both families: the `symfony` kinds return a single file, the
 `shopware` kinds a `WorkspaceEdit` that the script applies (including
@@ -329,26 +329,26 @@ Two deliberate gaps. The `entity-definition` scaffold is a multi-step
 bootstrap/preview/apply workflow, so the script points you at the
 `shopware_entity_schema_*` MCP tools instead.
 
-And `twig-form-fields` stays unverified. It targets **Symfony form rendering**,
+`twig-form-fields` targets **Symfony form rendering**,
 `{{ form_row(form.name) }}`, which Shopware does not use anywhere: no
 `form_row`, `form_widget` or `form_start` appears under `src/`. Administration
 templates such as `sw-bulk-edit-customer.html.twig` are Vue components written
 in Twig syntax, not Symfony forms, so an empty result there is correct.
 
-Against a purpose-built Symfony fixture the chain gets three of four steps:
+It is verified against a real Symfony 7 application, and the fixture has to be
+real: with hand-written stubs for `AbstractController` and `FormInterface` the
+server resolves the variable to `FormView` but never links it to a `FormType`,
+and `candidates` comes back empty. Install `symfony/framework-bundle` and
+`symfony/form` for real and it resolves:
 
-| Step | Result |
-|---|---|
-| Template variable tracked from the controller | works |
-| Variable type resolved | `Symfony\Component\Form\FormView` |
-| Forms index knows the FormType and its `dataClass` | works |
-| Variable linked to that FormType (`formTypes`) | **never populates** |
+```json
+{"forms": [{"variable": "form", "formType": "App\\Form\\ProductType",
+            "fields": ["active", "name", "price", "stock"]}]}
+```
 
-Without that last link `candidates` returns `{"forms": []}`. Tried with the
-form in a local variable and inlined, with and without Symfony vendor stubs,
-and with the type registered as a `form.type` tagged service. Verifying it
-needs a real Symfony application; the sibling `form-fields` action, which
-works off the PHP FormType directly, is verified and unaffected.
+Note that the `twig/templateVariables` analytics command still reports
+`formTypes: None` for that variable; it does not expose the field, and
+`candidates` resolves the link internally. Do not use it to diagnose this.
 
 
 ## Development

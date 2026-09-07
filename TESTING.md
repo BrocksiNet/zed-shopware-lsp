@@ -130,6 +130,19 @@ server. Re-run `zed: install dev extension` first.
 - [ ] Multi-root workspace: with `context_servers.shopware-lsp.settings.root`
       set, the MCP server targets that root.
 
+## Fixtures worth knowing about
+
+Two actions cannot be exercised against Shopware itself, because Shopware does
+not use Symfony forms:
+
+- `form-fields` and `twig-form-fields` need a throwaway project with
+  `symfony/framework-bundle` and `symfony/form` installed, plus a `FormType`, a
+  data class, a controller calling `createForm(...)->createView()`, and a
+  template.
+- **Real vendor code is required.** With hand-written stubs the variable
+  resolves to `FormView` but never to a `FormType`, so `candidates` returns
+  nothing and the feature looks broken when the fixture is at fault.
+
 ## Known gaps
 
 - The `Extension` trait impl itself is only verified by compiling. There is no
