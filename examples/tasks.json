@@ -1,0 +1,54 @@
+// Copy into your Shopware project as .zed/tasks.json, then adjust the path to
+// sw-action.py. Run with `task: spawn`, or bind a key (see keymap.json).
+//
+// These cover shopware-lsp generator features that cannot be LSP code actions
+// in Zed: the server hands back a text snippet and expects the client to run a
+// picker and insert it. The task does both.
+[
+  {
+    "label": "Shopware: add Twig extends",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "twig-extends",
+      "$ZED_FILE",
+      "$ZED_ROW"
+    ],
+    // The script reads the file from disk, so flush the buffer first.
+    "save": "current",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "on_success"
+  },
+  {
+    "label": "Shopware: add Twig blocks",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "twig-blocks",
+      "$ZED_FILE",
+      "$ZED_ROW"
+    ],
+    "save": "current",
+    "reveal": "always",
+    "hide": "on_success"
+  },
+  {
+    "label": "Shopware: diagnostics for this file",
+    "command": "shopware-lsp",
+    "args": ["-root", "$ZED_WORKTREE_ROOT", "check", "$ZED_FILE"],
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: browse Symfony routes",
+    "command": "shopware-lsp",
+    "args": [
+      "-root",
+      "$ZED_WORKTREE_ROOT",
+      "execute",
+      "shopware/symfony/analytics/routes"
+    ],
+    "reveal": "always"
+  }
+]

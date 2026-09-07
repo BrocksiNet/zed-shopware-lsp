@@ -171,6 +171,28 @@ context server pointed straight at the binary.
 | `AGENTS.md` | Architecture, constraints, and conventions for contributors and agents |
 | `TESTING.md` | The three-layer test plan and the manual Zed checklist |
 
+## Generator actions as tasks
+
+The generator code actions cannot work from Zed's code-action menu, but the
+features behind them are not lost. Each is backed by a pair of server commands,
+a `.../candidates` query and a `.../generate` call, both reachable over
+`workspace/executeCommand` and the CLI. `scripts/sw-action.py` runs the picker
+in a terminal and inserts the snippet, so a Zed task gives you the same result:
+
+```bash
+cp scripts/sw-action.py /path/to/shopware/.zed/
+cp examples/tasks.json  /path/to/shopware/.zed/
+```
+
+Then `task: spawn` → *Shopware: add Twig extends*, or bind a key with the
+snippet in `examples/keymap.json`. It uses `fzf` when installed and falls back
+to a numbered prompt. `examples/tasks.json` also includes file diagnostics and
+a Symfony route dump.
+
+Covered so far: `twig-extends` and `twig-blocks`. The remaining generators
+follow the same candidates/generate shape and are a table entry each in
+`sw-action.py`.
+
 ## Development
 
 ```bash
@@ -193,8 +215,9 @@ these stay VS Code and Cursor only:
 - the ~20 generator code actions (`Insert Snippet`, `Add Twig extends`,
   `Generate a Symfony service definition`, ...). These carry a `command` naming
   a client-side `shopware.*` command that only the VS Code extension
-  implements, mostly because it opens a picker. They appear in Zed's
-  code-action menu and do nothing.
+  implements, because the flow is picker-then-insert and the server returns a
+  text snippet rather than an edit. They appear in Zed's code-action menu and
+  do nothing there. **They are still runnable as tasks**, see below.
 - custom UI like the entity designer
 
 Diagnostic quickfixes, by contrast, **do** work: `Remove unused import`,

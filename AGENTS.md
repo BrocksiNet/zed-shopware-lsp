@@ -28,12 +28,21 @@ impossible here.
   `codeAction/resolve` when it can. Zed declares `publish_diagnostics.
   data_support` and `code_action.data_support`, so it takes the resolve path.
   Strip that `data` and the quickfix disappears from the response entirely.
-- **The ~20 generator actions are dead in any non-VS-Code client.** They carry
-  a `command` naming a client-side `shopware.*` command (`insertSnippet`,
-  `twig.extendBlock`, `symfony.generateService`, ...) that only the VS Code
-  extension implements, usually because it opens a picker. They still appear in
-  Zed's code-action menu and do nothing. Not fixable here; the extension API
-  cannot filter code actions.
+- **The ~20 generator actions cannot be code actions in Zed**, but they are
+  still runnable. They carry a `command` naming a client-side `shopware.*`
+  command (`insertSnippet`, `twig.extendBlock`, `symfony.generateService`, ...)
+  which only the VS Code extension implements, because the flow is
+  picker-then-insert and `generate` returns a **text snippet**, not a
+  `WorkspaceEdit`. Zed's extension API can neither register the command nor
+  filter the dead entry out of the menu.
+
+  What it can do is bypass the code action entirely: almost every one of these
+  is backed by a pair of *server* commands, `.../candidates` and
+  `.../generate`, both reachable via `workspace/executeCommand` and the CLI.
+  `scripts/sw-action.py` does the picker in a terminal and the insertion on
+  disk, driven from a Zed task. See `examples/tasks.json`. Adding another
+  action is usually just a table entry, provided its server twin exists in the
+  44-command list.
 
 ## Layout
 
@@ -45,6 +54,8 @@ impossible here.
 | `docs/mcp-instructions.md` | Markdown shown in Zed's context-server UI. Embedded with `include_str!`. |
 | `docs/mcp-settings-schema.json` | JSON schema for the context server's `settings`. Embedded with `include_str!`. |
 | `scripts/contract-check.py` | Verifies assumptions about Open VSX and the server binary. Network required. |
+| `scripts/sw-action.py` | Runs picker-based generator actions from a Zed task, since they cannot be code actions. |
+| `examples/` | `tasks.json` and `keymap.json` to copy into a Shopware project. |
 | `build-server.sh` | Builds the server from a local `shopware-lsp` checkout. Needs Go and CGO. |
 | `update-server.sh` | Installs the *published* server. Currently produces a build that cannot initialize in Zed; prefer `build-server.sh`. |
 | `shopware-lsp-zed` | Retired Python stdio shim that patched the `tokenModifiers` null. Kept as a fallback for anyone on a published binary. |

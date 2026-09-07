@@ -1,0 +1,16 @@
+// Copy the bindings into your Zed keymap.json.
+[
+  {
+    "context": "Editor && extension == twig",
+    "bindings": {
+      "alt-shift-e": ["task::Spawn", { "task_name": "Shopware: add Twig extends" }],
+      "alt-shift-b": ["task::Spawn", { "task_name": "Shopware: add Twig blocks" }]
+    }
+  },
+  {
+    "context": "Workspace",
+    "bindings": {
+      "alt-shift-d": ["task::Spawn", { "task_name": "Shopware: diagnostics for this file" }]
+    }
+  }
+]
