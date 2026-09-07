@@ -116,6 +116,25 @@ registry ([zed#59351](https://github.com/zed-industries/zed/issues/59351)). If
 that lands before this is rewritten, the same server still works as a custom
 context server pointed straight at the binary.
 
+## Compared with the VS Code extension
+
+| VS Code contribution | Here |
+|---|---|
+| Language server | yes |
+| 18 `shopwareLSP.*` settings | yes, forwarded verbatim |
+| MCP server | yes, as a context server |
+| Snippets (1 PHP, 6 config XML) | yes, ported |
+| `yamlValidation` for `lsp.yaml` | via `examples/settings.json`, pointing at the server's own schema |
+| 23 `shopware.*` palette commands | no palette; 13 equivalents as tasks |
+| Explorer and editor context menus | no, Zed has no extension menu API |
+| Code lenses | server offers them, Zed does not render them |
+| Entity designer, Twig block diff viewer | no, needs custom UI |
+
+Everything the language server itself provides — completion, hover,
+definitions, references, diagnostics, quickfixes, organize-imports, semantic
+tokens, inlay hints — is identical, because it is the same binary answering.
+The gaps are all editor-surface, not intelligence.
+
 ## Repository layout
 
 | Path | What it is |

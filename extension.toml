@@ -6,6 +6,10 @@ authors = ["b.meyer <b.meyer@shopware.com>"]
 description = "Shopware Language Server support for Zed (wraps the shopware-lsp binary)"
 repository = "https://github.com/BrocksiNet/zed-shopware-lsp"
 
+# Ported from shopware/shopware-lsp (MIT), vscode-extension/snippets. Zed
+# matches these by lowercase language name, so config-xml.json becomes xml.json.
+snippets = ["./snippets/php.json", "./snippets/xml.json"]
+
 [language_servers.shopware-lsp]
 name = "Shopware LSP"
 languages = [

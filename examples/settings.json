@@ -1,0 +1,37 @@
+// Optional Zed settings for a Shopware project. Merge what you want into your
+// own settings.json, or the project's .zed/settings.json.
+{
+  "lsp": {
+    "shopware-lsp": {
+      "settings": {
+        "shopwareLSP": {
+          "activationMode": "auto",
+          // 0 uses the server's balanced GC policy. 512 trades indexing CPU
+          // for lower peak memory on large workspaces.
+          "memoryLimitMiB": 0
+        }
+      }
+    },
+    // Validate .config/shopware/lsp.yaml against the server's own schema.
+    // This is what the VS Code extension contributes as yamlValidation.
+    "yaml-language-server": {
+      "settings": {
+        "yaml": {
+          "schemas": {
+            "https://raw.githubusercontent.com/shopware/shopware-lsp/feat/next-gen/internal/projectconfig/schema.json": [
+              ".config/shopware/lsp.yaml"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "languages": {
+    "PHP": {
+      // Organize imports is one of the few code actions that works in a
+      // generic client. Add your own formatter as a second entry.
+      "formatter": [{ "code_action": "source.organizeImports" }],
+      "format_on_save": "on"
+    }
+  }
+}
