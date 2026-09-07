@@ -211,7 +211,7 @@ context server pointed straight at the binary.
 | Language server | yes |
 | 18 `shopwareLSP.*` settings | yes, forwarded verbatim |
 | MCP server | yes, as a context server |
-| Snippets (1 PHP, 6 config XML) | yes, ported |
+| Snippets (1 PHP, 6 config XML) | yes, ported and confirmed working |
 | `yamlValidation` for `lsp.yaml` | via `examples/settings.json`, pointing at the server's own schema |
 | 23 `shopware.*` palette commands | no palette; 13 equivalents as tasks |
 | Explorer and editor context menus | no, Zed has no extension menu API |
