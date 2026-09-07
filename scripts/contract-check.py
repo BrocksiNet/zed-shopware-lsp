@@ -179,6 +179,70 @@ def check_lsp_handshake(binary, root):
     )
 
 
+def check_client_negotiation(binary, root):
+    """The extension sends initializationOptions.shopwareClient.
+
+    A protocol-version mismatch makes `initialize` fail outright, so the
+    version the extension hardcodes has to stay pinned to the server's.
+    """
+    print("\nclient negotiation")
+    process = subprocess.Popen(
+        [binary],
+        cwd=root,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "processId": os.getpid(),
+            "rootUri": "file://" + root,
+            "workspaceFolders": [{"uri": "file://" + root, "name": "fixture"}],
+            "capabilities": {},
+            "initializationOptions": {
+                "shopwareClient": {
+                    "protocolVersion": 1,
+                    "presentationProfile": "full",
+                    "supportedCommands": [],
+                }
+            },
+        },
+    }
+    body = json.dumps(request).encode()
+    process.stdin.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
+    process.stdin.flush()
+
+    response = None
+    for _ in range(12):
+        message = read_lsp_message(process.stdout)
+        if message is None:
+            break
+        if message.get("id") == 1:
+            response = message
+            break
+    process.kill()
+
+    if not check("initialize accepts protocolVersion 1", bool(response and "result" in response),
+                 "a mismatch means the extension must bump CLIENT_PROTOCOL_VERSION"):
+        return
+
+    state = (
+        response["result"]
+        .get("capabilities", {})
+        .get("experimental", {})
+        .get("shopwareLSP", {})
+    )
+    check("negotiation is active", state.get("active") is True, json.dumps(state)[:90])
+    check(
+        "server echoes an empty supportedCommands",
+        state.get("supportedCommands") == [],
+        "this is what drops the command-backed code actions",
+    )
+
+
 def check_mcp(binary, root):
     print("\nMCP server")
     rejected = subprocess.run(
@@ -276,6 +340,7 @@ def main():
             root = fixture_project(workdir)
             check_project_detection(args.binary, root)
             check_lsp_handshake(args.binary, root)
+            check_client_negotiation(args.binary, root)
             check_mcp(args.binary, root)
 
     print()

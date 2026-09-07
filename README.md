@@ -205,8 +205,13 @@ these stay VS Code and Cursor only:
   `Generate a Symfony service definition`, ...). These carry a `command` naming
   a client-side `shopware.*` command that only the VS Code extension
   implements, because the flow is picker-then-insert and the server returns a
-  text snippet rather than an edit. They appear in Zed's code-action menu and
-  do nothing there. **They are still runnable as tasks**, see below.
+  text snippet rather than an edit.
+
+  The extension declares an empty
+  `initializationOptions.shopwareClient.supportedCommands`, so the server
+  **omits them entirely** rather than offering entries that do nothing.
+  Diagnostic quickfixes are unaffected. **The features stay runnable as
+  tasks**, see below.
 - custom UI like the entity designer
 
 Diagnostic quickfixes, by contrast, **do** work: `Remove unused import`,

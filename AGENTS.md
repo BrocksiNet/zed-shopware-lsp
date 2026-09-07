@@ -28,26 +28,36 @@ impossible here.
   `codeAction/resolve` when it can. Zed declares `publish_diagnostics.
   data_support` and `code_action.data_support`, so it takes the resolve path.
   Strip that `data` and the quickfix disappears from the response entirely.
-- **The ~20 generator actions cannot be code actions in Zed**, but they are
-  still runnable. They carry a `command` naming a client-side `shopware.*`
-  command (`insertSnippet`, `twig.extendBlock`, `symfony.generateService`, ...)
+- **The ~20 generator actions cannot be code actions in Zed**, and the server
+  is told so. They carry a `command` naming a client-side `shopware.*` command
   which only the VS Code extension implements, because the flow is
-  picker-then-insert and `generate` returns a **text snippet**, not a
-  `WorkspaceEdit`. Zed's extension API can neither register the command nor
-  filter the dead entry out of the menu.
+  picker-then-insert and `generate` returns text rather than a
+  `WorkspaceEdit`. Zed's extension API cannot register such a command.
 
-  What it can do is bypass the code action entirely: these are backed by
-  ordinary *server* commands, reachable via `workspace/executeCommand` and the
-  CLI. `scripts/sw-action.py` does the picker in a terminal and the writing on
-  disk, driven from a Zed task. See `examples/tasks.json`.
+  The server supports a negotiation for exactly this:
+  `initializationOptions.shopwareClient.supportedCommands` is an allow-list,
+  and the server drops every command-backed code action and code lens the
+  client cannot execute. We send an empty list, so those entries never appear.
+  Diagnostic quickfixes are unaffected, since they carry no command.
+
+  `presentationProfile` stays `full`; `framework` is for hosts with their own
+  PHP intelligence, which Zed does not have.
+
+  `protocolVersion` is hardcoded to 1 and **must match the server**, or
+  `initialize` fails outright. The contract check pins it.
+
+  The features themselves stay reachable through `scripts/sw-action.py`, which
+  runs the picker in a terminal and the writing on disk from a Zed task. See
+  `examples/tasks.json`.
 
   Adding another generator is usually one `SNIPPET_ACTIONS` entry, but check
   three things first, because they differ per generator: whether `generate`
   returns a snippet to insert or a whole file to replace (`mode`), whether
-  `candidates` needs a `className` the server will not infer (`needs_class`,
-  resolved from the document outline), and whether the kind requires an
-  `options` entry. `shopware/integration/catalog` lists the client commands and
-  all 24 scaffolds.
+  `candidates` needs a `className` the server will not infer (`needs_class`),
+  and whether the kind requires an `options` entry.
+  `shopware/integration/catalog` lists the client commands and all 24
+  scaffolds.
+
 
 ## Layout
 

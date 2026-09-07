@@ -15,6 +15,10 @@ const SERVER_NAME: &str = "shopware-lsp";
 /// binary of record.
 const OPEN_VSX_API: &str = "https://open-vsx.org/api/shopware/shopware-lsp";
 
+/// Must match the server's own `ClientProtocolVersion`. A mismatch makes
+/// `initialize` fail outright, so the contract check pins it.
+const CLIENT_PROTOCOL_VERSION: u32 = 1;
+
 struct ShopwareLspExtension {
     /// Resolved once per extension process so a settings reload does not send
     /// another request to Open VSX.
@@ -90,6 +94,41 @@ fn mcp_args(root: Option<&str>) -> Vec<String> {
 ///
 /// Deliberately requires the `shopware-lsp-` prefix rather than `shopware-lsp`,
 /// so a binary someone dropped into the work directory is never deleted.
+/// Tell the server which editor-side commands this client implements.
+///
+/// Zed's extension API cannot register commands, so the honest answer is none.
+/// The server then drops every command-backed code action and code lens, which
+/// is what stops ~20 generator entries appearing in the menu and doing nothing.
+/// Diagnostic quickfixes are unaffected: they carry no command.
+///
+/// `presentationProfile` stays `full` because Zed has no PHP intelligence of
+/// its own; `framework` is for hosts like PhpStorm that do.
+fn default_initialization_options() -> zed::serde_json::Value {
+    zed::serde_json::json!({
+        "shopwareClient": {
+            "protocolVersion": CLIENT_PROTOCOL_VERSION,
+            "presentationProfile": "full",
+            "supportedCommands": [],
+        }
+    })
+}
+
+/// Recursively overlay `overlay` onto `base`, so a user can override any single
+/// key without having to restate the whole object.
+fn merge_json(base: &mut zed::serde_json::Value, overlay: zed::serde_json::Value) {
+    match (base, overlay) {
+        (zed::serde_json::Value::Object(target), zed::serde_json::Value::Object(source)) => {
+            for (key, value) in source {
+                merge_json(
+                    target.entry(key).or_insert(zed::serde_json::Value::Null),
+                    value,
+                );
+            }
+        }
+        (target, source) => *target = source,
+    }
+}
+
 fn is_superseded_download(name: &str, keep: &str) -> bool {
     name.strip_prefix(SERVER_NAME)
         .is_some_and(|rest| rest.starts_with('-'))
@@ -256,9 +295,14 @@ impl zed::Extension for ShopwareLspExtension {
         _language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<Option<zed::serde_json::Value>> {
-        Ok(LspSettings::for_worktree(SERVER_NAME, worktree)
+        let mut options = default_initialization_options();
+        if let Some(user) = LspSettings::for_worktree(SERVER_NAME, worktree)
             .ok()
-            .and_then(|settings| settings.initialization_options))
+            .and_then(|settings| settings.initialization_options)
+        {
+            merge_json(&mut options, user);
+        }
+        Ok(Some(options))
     }
 
     /// Expose the server's MCP tools to Zed's Agent Panel.
@@ -432,6 +476,43 @@ mod tests {
     #[test]
     fn falls_back_to_the_working_directory_without_a_known_root() {
         assert_eq!(mcp_args(None), vec!["mcp"]);
+    }
+
+    #[test]
+    fn declares_no_editor_side_commands() {
+        // Claiming a command Zed cannot run brings back the dead menu entries;
+        // the empty list is what makes the server drop them.
+        let options = default_initialization_options();
+        let client = &options["shopwareClient"];
+        assert_eq!(client["protocolVersion"], 1);
+        assert_eq!(client["presentationProfile"], "full");
+        assert_eq!(
+            client["supportedCommands"].as_array().map(Vec::len),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn user_initialization_options_override_the_defaults() {
+        let mut options = default_initialization_options();
+        merge_json(
+            &mut options,
+            zed::serde_json::json!({
+                "shopwareClient": {"supportedCommands": ["shopware.openReferences"]},
+                "allowUnsupportedProject": true,
+            }),
+        );
+
+        // Overridden leaf.
+        assert_eq!(
+            options["shopwareClient"]["supportedCommands"][0],
+            "shopware.openReferences"
+        );
+        // Sibling keys inside the same object survive the merge.
+        assert_eq!(options["shopwareClient"]["protocolVersion"], 1);
+        assert_eq!(options["shopwareClient"]["presentationProfile"], "full");
+        // New top-level keys are added.
+        assert_eq!(options["allowUnsupportedProject"], true);
     }
 
     #[test]
