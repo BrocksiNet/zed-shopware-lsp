@@ -282,6 +282,98 @@ definitions, references, diagnostics, quickfixes, organize-imports, semantic
 tokens, inlay hints — is identical, because it is the same binary answering.
 The gaps are all editor-surface, not intelligence.
 
+## Troubleshooting
+
+### Thousands of "Service ... not found" or "Parameter ... not found"
+
+The server checks service and parameter references against Symfony's **dev
+debug container dump**, `var/cache/dev*/Shopware_Core_KernelDevDebugContainer.xml`.
+Without that file it has no service list, so every reference looks missing. On
+a shopware/shopware checkout that was 2018 diagnostics, 70% of everything
+reported.
+
+Two separate things can hide it.
+
+**The app runs in prod.** Shopware's `.env` ships `APP_ENV=prod`, and only a
+dev-with-debug build writes that XML. Either switch your `.env` to
+`APP_ENV=dev`, which is the normal development setup and keeps it current, or
+warm dev explicitly:
+
+```bash
+bin/console cache:warmup --env=dev
+```
+
+Note that a plain `cache:warmup` warms **prod** and produces nothing useful
+here.
+
+**The app runs in a container and `var/` is not synced to the host.** The
+extension runs the language server on your machine, so a cache written inside
+the container is invisible to it. Copy the dump out:
+
+```bash
+D=$(docker compose exec -T web sh -c 'ls -d /var/www/html/var/cache/dev_*' | tr -d "\r")
+mkdir -p "var/cache/$(basename "$D")"
+docker compose exec -T web cat "$D/Shopware_Core_KernelDevDebugContainer.xml" \
+  > "var/cache/$(basename "$D")/Shopware_Core_KernelDevDebugContainer.xml"
+```
+
+Roughly 3 MB. `var/` is gitignored, and the server's glob is `dev*`, so the
+hashed directory name is fine. Repeat after changing service definitions.
+
+### Code actions and completions appear twice
+
+Two PHP language servers. See
+[Running alongside another PHP server](#running-alongside-another-php-server).
+
+### Nothing happens in `.twig` files
+
+Install the **Twig** extension from Zed's registry. Without it those files have
+no language id and the server is never attached.
+
+### Snippets or new behaviour missing after a `git pull`
+
+Zed compiles a dev extension only when you install it. Re-run
+`zed: install dev extension` on the folder.
+
+### `failed to spawn command ... No such file or directory`
+
+A stale `lsp.shopware-lsp.binary.path`. Recent versions skip a configured path
+that does not exist, but older ones spawn it anyway. Remove the setting and let
+the extension resolve the server itself.
+
+### PHP 8.3+ syntax reported as unsupported
+
+```
+Typed class constants require PHP 8.3; the project is configured for PHP 8.2 [php.version]
+```
+
+The version comes from `composer.json`: `config.platform.php` wins, then the
+floor of the `require.php` constraint, then 8.2. shopware/shopware declares
+`~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0`, so the floor is 8.2 regardless of the
+PHP your container runs. That is correct for core, which must support 8.2.
+Silence it per project in `.config/shopware/lsp.yaml`:
+
+```yaml
+version: 1
+diagnostics:
+  rules:
+    php.version: off
+```
+
+### Auditing a whole project
+
+`check` takes a directory, which is a quick way to find systematic problems:
+
+```bash
+shopware-lsp -root . -json check src/ > /tmp/check.json
+```
+
+Aggregate by the `code` field rather than reading it. A rule firing in the
+hundreds against known-good code is a false positive worth reporting upstream,
+which is how the `@template` bug in
+[shopware/shopware-lsp#62](https://github.com/shopware/shopware-lsp/pull/62)
+was found.
+
 ## Repository layout
 
 | Path | What it is |
