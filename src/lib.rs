@@ -90,10 +90,6 @@ fn mcp_args(root: Option<&str>) -> Vec<String> {
     }
 }
 
-/// Whether a work-dir entry is an older managed download.
-///
-/// Deliberately requires the `shopware-lsp-` prefix rather than `shopware-lsp`,
-/// so a binary someone dropped into the work directory is never deleted.
 /// Tell the server which editor-side commands this client implements.
 ///
 /// Zed's extension API cannot register commands, so the honest answer is none.
@@ -129,6 +125,23 @@ fn merge_json(base: &mut zed::serde_json::Value, overlay: zed::serde_json::Value
     }
 }
 
+/// Whether a configured `binary.path` is worth spawning.
+///
+/// A path that no longer exists is almost always stale configuration, and
+/// honouring it turns into an opaque "failed to spawn command" from Zed.
+/// Falling through to PATH or a managed download gets the user a working
+/// server instead.
+fn usable_binary(path: &str) -> bool {
+    !path.trim().is_empty()
+        && fs::metadata(path)
+            .map(|stat| stat.is_file())
+            .unwrap_or(false)
+}
+
+/// Whether a work-dir entry is an older managed download.
+///
+/// Deliberately requires the `shopware-lsp-` prefix rather than `shopware-lsp`,
+/// so a binary someone dropped into the work directory is never deleted.
 fn is_superseded_download(name: &str, keep: &str) -> bool {
     name.strip_prefix(SERVER_NAME)
         .is_some_and(|rest| rest.starts_with('-'))
@@ -235,6 +248,7 @@ impl ShopwareLspExtension {
             .ok()
             .and_then(|settings| settings.binary)
             .and_then(|binary| binary.path)
+            .filter(|path| usable_binary(path))
         {
             self.cached_binary_path = Some(path.clone());
             return Ok(path);
@@ -513,6 +527,22 @@ mod tests {
         assert_eq!(options["shopwareClient"]["presentationProfile"], "full");
         // New top-level keys are added.
         assert_eq!(options["allowUnsupportedProject"], true);
+    }
+
+    #[test]
+    fn ignores_a_configured_path_that_no_longer_exists() {
+        // Stale binary.path is the common case after a server is moved or a
+        // workaround is retired. Spawning it fails opaquely; falling through
+        // to PATH or a download does not.
+        assert!(!usable_binary("/nonexistent/shopware-lsp"));
+        assert!(!usable_binary(""));
+        assert!(!usable_binary("   "));
+        // A directory is not a server either.
+        assert!(!usable_binary("/tmp"));
+        // Something that does exist and is a file.
+        assert!(usable_binary(
+            std::env::current_exe().unwrap().to_str().unwrap()
+        ));
     }
 
     #[test]

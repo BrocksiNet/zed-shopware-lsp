@@ -31,9 +31,14 @@ cargo build --release --target wasm32-wasip2
 
 In order, first hit wins:
 
-1. `lsp.shopware-lsp.binary.path` from your Zed settings
+1. `lsp.shopware-lsp.binary.path` from your Zed settings, **if it exists**
 2. a `shopware-lsp` on `PATH`
 3. a managed download from Open VSX into the extension's work directory
+
+A configured path that no longer exists is skipped rather than spawned. Stale
+`binary.path` is common after a server moves or a workaround is retired, and
+honouring it produces an opaque `failed to spawn command` from Zed instead of
+a working server.
 
 A local build therefore always beats the download, which is what you want when
 testing an unreleased server change via `build-server.sh`. Superseded downloads
