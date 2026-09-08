@@ -346,6 +346,23 @@ definitions, references, diagnostics, quickfixes, organize-imports, semantic
 tokens, inlay hints — is identical, because it is the same binary answering.
 The gaps are all editor-surface, not intelligence.
 
+## Environment variables
+
+The server indexes `.env` files and offers hover on Symfony environment
+variables, showing where each is declared and how often it is used. That works
+in PHP, Twig and Dockerfiles once the relevant language is registered.
+
+It does **not** work inside `.env` files themselves, though the server supports
+it: hovering a variable there returns a real answer when asked over the CLI.
+Zed has no dotenv language at all, so those files get no language id and no
+server attaches. Fixing it means shipping a dotenv language from this
+extension, grammar included, and taking on a language other extensions may
+later provide. Not done.
+
+Worth knowing that the server dispatches on file path rather than language id,
+so the id an editor reports does not matter; only whether anything attaches
+does.
+
 ## Troubleshooting
 
 ### Thousands of "Service ... not found" or "Parameter ... not found"
@@ -392,7 +409,8 @@ Two PHP language servers. See
 ### Nothing happens in `.twig` files
 
 Install the **Twig** extension from Zed's registry. Without it those files have
-no language id and the server is never attached.
+no language id and the server is never attached. The **Dockerfile** extension
+is optional and enables env-var hover in Dockerfiles.
 
 ### Snippets or new behaviour missing after a `git pull`
 
