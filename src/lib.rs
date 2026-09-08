@@ -42,10 +42,6 @@ fn binary_path_for(dir: &str, os: Os) -> String {
     }
 }
 
-fn binary_path_in(dir: &str) -> String {
-    binary_path_for(dir, zed::current_platform().0)
-}
-
 /// Map a platform to an Open VSX target triple.
 ///
 /// musl is deliberately absent: the extension API cannot tell glibc from musl,
@@ -225,6 +221,45 @@ fn memory_limit_env(shopware: &zed::serde_json::Value) -> Option<String> {
     (mib > 0).then(|| format!("{mib}MiB"))
 }
 
+/// Where a given release unpacks to, and the binary inside it.
+///
+/// The directory name carries version and target so several can coexist while
+/// `is_superseded_download` prunes the rest, and so a version bump lands in a
+/// new directory rather than half-overwriting the old one.
+fn download_layout(version: &str, target: &str, os: Os) -> (String, String) {
+    let dir = format!("{SERVER_NAME}-{version}-{target}");
+    let binary = binary_path_for(&dir, os);
+    (dir, binary)
+}
+
+/// Project root for the MCP server.
+///
+/// An explicit `root` setting wins, then whatever the language server saw.
+/// `None` leaves the server to use its working directory, which is the only
+/// remaining option: `Project` exposes no paths and `zed::Command` has no cwd.
+fn mcp_root(configured: Option<&str>, cached: Option<String>) -> Option<String> {
+    configured
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or(cached)
+}
+
+/// Whether a context-server `command` block replaces discovery outright.
+///
+/// Only a path *with* arguments is treated as a full override; a bare path
+/// still goes through resolution so it keeps the `-root ... mcp` arguments the
+/// server needs rather than being spawned bare.
+fn command_override(
+    path: Option<String>,
+    arguments: Option<Vec<String>>,
+) -> Option<(String, Vec<String>)> {
+    match (path, arguments) {
+        (Some(path), Some(arguments)) if !path.trim().is_empty() => Some((path, arguments)),
+        _ => None,
+    }
+}
+
 /// Pick a server from the sources both hooks share, in priority order.
 ///
 /// Nothing here is stat'd. The wasm sandbox only preopens the extension work
@@ -299,8 +334,7 @@ impl ShopwareLspExtension {
         let target = open_vsx_target()?;
         let (version, url) = Self::latest_release(target)?;
 
-        let version_dir = format!("{SERVER_NAME}-{version}-{target}");
-        let binary = binary_path_in(&version_dir);
+        let (version_dir, binary) = download_layout(&version, target, zed::current_platform().0);
 
         if !download_present(&binary) {
             if let Some(id) = status_id {
@@ -490,39 +524,36 @@ impl zed::Extension for ShopwareLspExtension {
 
         let command = settings.as_ref().and_then(|s| s.command.as_ref());
 
-        // A full command override with explicit arguments bypasses discovery.
-        if let Some(path) = command
-            .and_then(|c| c.path.clone())
-            .filter(|_| command.and_then(|c| c.arguments.as_ref()).is_some())
-        {
+        let env: Vec<(String, String)> = command
+            .and_then(|c| c.env.clone())
+            .map(|env| env.into_iter().collect())
+            .unwrap_or_default();
+
+        if let Some((path, args)) = command_override(
+            command.and_then(|c| c.path.clone()),
+            command.and_then(|c| c.arguments.clone()),
+        ) {
             return Ok(zed::Command {
                 command: path,
-                args: command
-                    .and_then(|c| c.arguments.clone())
-                    .unwrap_or_else(|| vec!["mcp".into()]),
-                env: command
-                    .and_then(|c| c.env.clone())
-                    .map(|env| env.into_iter().collect())
-                    .unwrap_or_default(),
+                args,
+                env,
             });
         }
 
-        let root = settings
-            .as_ref()
-            .and_then(|s| s.settings.as_ref())
-            .and_then(|s| s["root"].as_str())
-            .map(str::to_string)
-            .or_else(|| self.cached_worktree_root.clone());
+        let root = mcp_root(
+            settings
+                .as_ref()
+                .and_then(|s| s.settings.as_ref())
+                .and_then(|s| s["root"].as_str()),
+            self.cached_worktree_root.clone(),
+        );
 
         let args = mcp_args(root.as_deref());
 
         Ok(zed::Command {
             command: self.mcp_server_binary(command.and_then(|c| c.path.clone()))?,
             args,
-            env: command
-                .and_then(|c| c.env.clone())
-                .map(|env| env.into_iter().collect())
-                .unwrap_or_default(),
+            env,
         })
     }
 
@@ -810,6 +841,59 @@ mod tests {
             None
         );
         assert_eq!(memory_limit_env(&zed::serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn download_layout_keeps_versions_apart() {
+        let (dir, binary) = download_layout("0.3.53", "darwin-arm64", Os::Mac);
+        assert_eq!(dir, "shopware-lsp-0.3.53-darwin-arm64");
+        assert_eq!(
+            binary,
+            "shopware-lsp-0.3.53-darwin-arm64/extension/shopware-lsp"
+        );
+
+        // A different version must not reuse the directory, or an upgrade
+        // half-overwrites the old one.
+        let (other, _) = download_layout("0.3.54", "darwin-arm64", Os::Mac);
+        assert_ne!(dir, other);
+        // And the pruning predicate has to recognise the one we keep.
+        assert!(is_superseded_download(&other, &dir));
+        assert!(!is_superseded_download(&dir, &dir));
+
+        let (_, exe) = download_layout("0.3.53", "win32-x64", Os::Windows);
+        assert!(exe.ends_with("shopware-lsp.exe"));
+    }
+
+    #[test]
+    fn mcp_root_prefers_the_explicit_setting() {
+        assert_eq!(
+            mcp_root(Some("/srv/shop"), Some("/from/lsp".into())),
+            Some("/srv/shop".to_string())
+        );
+        // Falls back to whatever the language server reported.
+        assert_eq!(
+            mcp_root(None, Some("/from/lsp".into())),
+            Some("/from/lsp".to_string())
+        );
+        // Blank is not a root; without one the server uses its working dir.
+        assert_eq!(
+            mcp_root(Some("   "), Some("/from/lsp".into())),
+            Some("/from/lsp".to_string())
+        );
+        assert_eq!(mcp_root(None, None), None);
+    }
+
+    #[test]
+    fn only_a_path_with_arguments_replaces_discovery() {
+        assert_eq!(
+            command_override(Some("/bin/sw".into()), Some(vec!["mcp".into()])),
+            Some(("/bin/sw".to_string(), vec!["mcp".to_string()]))
+        );
+        // A bare path must still go through resolution, so it keeps the
+        // "-root <root> mcp" arguments instead of being spawned bare.
+        assert_eq!(command_override(Some("/bin/sw".into()), None), None);
+        assert_eq!(command_override(None, Some(vec!["mcp".into()])), None);
+        assert_eq!(command_override(Some("  ".into()), Some(vec![])), None);
     }
 
     #[test]
