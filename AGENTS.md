@@ -79,6 +79,7 @@ impossible here.
 | `docs/mcp-instructions.md` | Markdown shown in Zed's context-server UI. Embedded with `include_str!`. |
 | `docs/mcp-settings-schema.json` | JSON schema for the context server's `settings`. Embedded with `include_str!`. |
 | `scripts/contract-check.py` | Verifies assumptions about Open VSX and the server binary. Network required. |
+| `scripts/test-sw-action.py` | Offline unit tests for `sw-action.py`'s pure helpers and for `examples/`. Runs in CI. |
 | `scripts/sw-action.py` | Runs picker-based generator actions from a Zed task, since they cannot be code actions. |
 | `scripts/inventory.py` | Golden-file gate that reports new or removed upstream surface. |
 | `inventory/snapshot.json` | The accepted upstream surface. Update deliberately, never blindly. |
@@ -119,6 +120,7 @@ untestable by construction.
 
 ```bash
 cargo test                                     # unit tests, native target
+python3 scripts/test-sw-action.py              # script helpers and examples/
 cargo clippy --all-targets -- -D warnings
 cargo fmt
 cargo build --release --target wasm32-wasip2   # the artifact Zed loads
@@ -165,6 +167,12 @@ registry.
   a `WorkspaceEdit` the client must apply, and nothing is written server-side.
   Trusting the doc produces a command that reports success and changes no
   files. Read the handler in `internal/lsp/commands/` before wiring a new one.
+- **`$ZED_COLUMN` is a UTF-8 byte offset, LSP positions are UTF-16.** Zed's
+  `Point.column` advances by `c.len_utf8()` (`crates/rope/src/rope.rs`,
+  `TextSummary::from`), so the two disagree on every line containing a
+  non-ASCII character. `sw-action.py` has `byte_column_to_index` for the task
+  variable and `utf16_to_index` for the protocol; swapping them silently
+  writes to the wrong offset. Both rows are 1-based.
 - **Do not run `vsix-preview.yml` in the upstream repo.** Its `workflow_dispatch`
   path ends in a `publish` job that pushes to the VS Code Marketplace and
   Open VSX.
@@ -178,6 +186,14 @@ registry.
   resolution order). Do not add comments that restate the code.
 - New behaviour needs a unit test if it can be expressed as a pure function,
   and a `TESTING.md` checklist entry if it can only be seen in Zed's UI.
+- **Task labels are verb-first**: `go`, `insert`, `create`, `show`, `open`,
+  `rebuild`. `task: spawn` is a flat fuzzy list, so the verb is what makes it
+  navigable. `test-sw-action.py` enforces the vocabulary, and enforces that
+  every `keymap.json` `task_name` resolves. Zed does nothing at all, silently,
+  when it does not.
+- **A task passing `$ZED_FILE` must set `save`.** Actions read the file from
+  disk, so `"current"` when contents are consumed and `"none"` when only the
+  path is. Leaving it out reads a stale buffer and looks like a server bug.
 - Mutation-check new tests: break the code, confirm the test fails, restore.
 - When `scripts/inventory.py --check` reports new surface, decide what it means
   before re-snapshotting. A new server command is often a generator worth

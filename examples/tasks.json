@@ -1,12 +1,66 @@
 // Copy into your Shopware or Symfony project as .zed/tasks.json, together with
-// sw-action.py. Run via `task: spawn`, or bind keys (see keymap.json).
+// sw-action.py. Run with `task: spawn`, or bind keys (see keymap.json).
 //
-// These cover shopware-lsp generator features that cannot be LSP code actions
-// in Zed: the server returns text or a WorkspaceEdit and expects the client to
-// run a picker and write the result. The task does both.
+// Labels are verb-first so `task: spawn` narrows by intent: type "go" for
+// navigation, "insert" or "create" for the generators, "show" for read-only.
+//
+// Tasks that read the file from disk use "save": "current" to flush the buffer
+// first. Tasks naming $ZED_SELECTED_TEXT only appear when text is selected.
+//
+// "save" is Zed's SaveStrategy. Actions read the file from disk, so any task
+// consuming file contents sets "current" to flush the buffer first; tasks that
+// only use the path set "none" so the difference is visible.
 [
   {
-    "label": "Shopware: add Twig extends",
+    "label": "Shopware: go to route",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "routes"
+    ],
+    "reveal": "always",
+    "hide": "on_success"
+  },
+  {
+    "label": "Shopware: go to service (selection)",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "locate-service",
+      "--service",
+      "$ZED_SELECTED_TEXT"
+    ],
+    "reveal": "always",
+    "hide": "on_success"
+  },
+  {
+    "label": "Shopware: go to templates extending this",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "template-usages",
+      "$ZED_FILE"
+    ],
+    "reveal": "always",
+    "hide": "on_success",
+    "save": "none"
+  },
+  {
+    "label": "Shopware: insert UUID",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "uuid",
+      "$ZED_FILE",
+      "$ZED_ROW",
+      "--column",
+      "$ZED_COLUMN"
+    ],
+    "save": "current",
+    "reveal": "never"
+  },
+  {
+    "label": "Shopware: insert Twig extends",
     "command": "python3",
     "args": [
       "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
@@ -14,13 +68,12 @@
       "$ZED_FILE",
       "$ZED_ROW"
     ],
-    // The script reads from disk, so flush the buffer first.
     "save": "current",
     "reveal": "always",
     "hide": "on_success"
   },
   {
-    "label": "Shopware: add Twig blocks",
+    "label": "Shopware: insert Twig blocks",
     "command": "python3",
     "args": [
       "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
@@ -33,15 +86,7 @@
     "hide": "on_success"
   },
   {
-    "label": "Shopware: generate form fields",
-    "command": "python3",
-    // Rewrites the whole FormType, so no row argument.
-    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "form-fields", "$ZED_FILE"],
-    "save": "current",
-    "reveal": "always"
-  },
-  {
-    "label": "Shopware: generate Twig form rows",
+    "label": "Shopware: insert Twig form rows",
     "command": "python3",
     "args": [
       "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
@@ -53,92 +98,18 @@
     "reveal": "always"
   },
   {
-    "label": "Shopware: scaffold (preview)",
+    "label": "Shopware: insert form fields",
     "command": "python3",
     "args": [
       "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
-      "scaffold",
-      "$ZED_DIRNAME",
-      "--print"
-    ],
-    "reveal": "always"
-  },
-  {
-    "label": "Shopware: scaffold (write)",
-    "command": "python3",
-    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "scaffold", "$ZED_DIRNAME"],
-    "reveal": "always"
-  },
-  {
-    "label": "Shopware: create storefront snippet",
-    "command": "python3",
-    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "snippet", "$ZED_FILE"],
-    "save": "current",
-    "reveal": "always"
-  },
-  {
-    "label": "Shopware: create admin snippet",
-    "command": "python3",
-    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "snippet-admin", "$ZED_FILE"],
-    "save": "current",
-    "reveal": "always"
-  },
-  {
-    "label": "Shopware: override storefront block",
-    "command": "python3",
-    "args": [
-      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
-      "twig-extend-block",
-      "$ZED_FILE",
-      "$ZED_ROW"
-    ],
-    "save": "current",
-    "reveal": "always"
-  },
-  {
-    "label": "Shopware: override admin block",
-    "command": "python3",
-    "args": [
-      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
-      "admin-twig-override",
-      "$ZED_FILE",
-      "$ZED_ROW"
-    ],
-    "save": "current",
-    "reveal": "always"
-  },
-  {
-    "label": "Shopware: Twig block diff",
-    "command": "python3",
-    "args": [
-      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
-      "twig-block-diff",
-      "$ZED_FILE",
-      "$ZED_ROW"
-    ],
-    "reveal": "always"
-  },
-  {
-    "label": "Shopware: service definition for this class",
-    "command": "python3",
-    "args": [
-      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
-      "service-definition",
+      "form-fields",
       "$ZED_FILE"
     ],
     "save": "current",
     "reveal": "always"
   },
   {
-    "label": "Shopware: create compiler pass",
-    "command": "python3",
-    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "compiler-pass"],
-    "reveal": "always"
-  },
-  {
-    // Only offered when text is selected: Zed filters out tasks whose
-    // variables are unset.
-    "label": "Shopware: extract Twig translation",
+    "label": "Shopware: insert translation (extract selection)",
     "command": "python3",
     "args": [
       "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
@@ -152,60 +123,83 @@
     "reveal": "always"
   },
   {
-    "label": "Shopware: effective configuration",
-    "command": "python3",
-    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "config"],
-    "reveal": "always"
-  },
-  {
-    "label": "Shopware: open project configuration",
-    "command": "python3",
-    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "config-open"],
-    "reveal": "always",
-    "hide": "on_success"
-  },
-  {
-    "label": "Shopware: rebuild the index",
-    "command": "python3",
-    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "reindex"],
-    "reveal": "always"
-  },
-  {
-    "label": "Shopware: browse routes",
-    "command": "python3",
-    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "routes"],
-    "reveal": "always",
-    "hide": "on_success"
-  },
-  {
-    // Offered only with a selection, which is the service id to look up.
-    "label": "Shopware: locate selected service",
+    "label": "Shopware: create storefront snippet",
     "command": "python3",
     "args": [
       "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
-      "locate-service",
-      "--service",
-      "$ZED_SELECTED_TEXT"
-    ],
-    "reveal": "always",
-    "hide": "on_success"
-  },
-  {
-    "label": "Shopware: who extends this template",
-    "command": "python3",
-    "args": [
-      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
-      "template-usages",
+      "snippet",
       "$ZED_FILE"
     ],
-    "reveal": "always",
-    "hide": "on_success"
+    "save": "current",
+    "reveal": "always"
   },
   {
-    // Through sw-action.py rather than calling shopware-lsp directly: after the
-    // documented install the only copy is inside Zed's extension directory and
-    // is not on PATH, so a direct call fails.
-    "label": "Shopware: diagnostics for this file",
+    "label": "Shopware: create admin snippet",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "snippet-admin",
+      "$ZED_FILE"
+    ],
+    "save": "current",
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: create storefront block override",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "twig-extend-block",
+      "$ZED_FILE",
+      "$ZED_ROW"
+    ],
+    "save": "current",
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: create admin block override",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "admin-twig-override",
+      "$ZED_FILE",
+      "$ZED_ROW"
+    ],
+    "save": "current",
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: create compiler pass",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "compiler-pass"
+    ],
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: create from scaffold (preview)",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "scaffold",
+      "$ZED_DIRNAME",
+      "--print"
+    ],
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: create from scaffold",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "scaffold",
+      "$ZED_DIRNAME"
+    ],
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: show diagnostics for this file",
     "command": "python3",
     "args": [
       "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
@@ -216,19 +210,57 @@
       "check",
       "$ZED_FILE"
     ],
-    "reveal": "always"
+    "reveal": "always",
+    "save": "current"
   },
   {
-    "label": "Shopware: browse Symfony routes",
+    "label": "Shopware: show effective configuration",
     "command": "python3",
     "args": [
       "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
-      "run",
-      "--",
-      "-root",
-      "$ZED_WORKTREE_ROOT",
-      "execute",
-      "shopware/symfony/analytics/routes"
+      "config"
+    ],
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: show service definition",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "service-definition",
+      "$ZED_FILE"
+    ],
+    "reveal": "always",
+    "save": "current"
+  },
+  {
+    "label": "Shopware: show Twig block diff",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "twig-block-diff",
+      "$ZED_FILE",
+      "$ZED_ROW"
+    ],
+    "reveal": "always",
+    "save": "current"
+  },
+  {
+    "label": "Shopware: open project configuration",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "config-open"
+    ],
+    "reveal": "always",
+    "hide": "on_success"
+  },
+  {
+    "label": "Shopware: rebuild index",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "reindex"
     ],
     "reveal": "always"
   }

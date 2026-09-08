@@ -485,6 +485,10 @@ cp examples/tasks.json  /path/to/project/.zed/
 Then `task: spawn`, or bind keys with `examples/keymap.json`. It uses `fzf`
 when installed and falls back to a numbered prompt.
 
+Task labels are verb-first, so `task: spawn` narrows by intent: type *go* for
+navigation, *insert* or *create* for the generators, *show* for the read-only
+ones.
+
 | Action | What it does | Status |
 |---|---|---|
 | `twig-extends` | Pick a parent template, insert `{% extends %}` | verified |
@@ -507,6 +511,7 @@ when installed and falls back to a numbered prompt.
 | `config` | Show the effective configuration and where it comes from | verified |
 | `config-open` | Open the project configuration, creating a valid stub | verified |
 | `reindex` | Rebuild the workspace index from scratch | verified |
+| `uuid` | Insert a 32-character hex UUID at the cursor, as `Uuid::randomHex()` produces | verified |
 
 `config-open` writes a stub containing `version: 1`, because the server
 rejects the file outright without it, and points `$schema` at the server's own

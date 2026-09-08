@@ -143,6 +143,7 @@ OTHER_ACTIONS = {
     "config": "Show the effective configuration and where it comes from",
     "config-open": "Open the project configuration, creating a valid stub",
     "reindex": "Rebuild the workspace index from scratch",
+    "uuid": "Insert a Shopware-style UUID at the cursor",
 }
 
 
@@ -353,6 +354,24 @@ def utf16_to_index(text, units):
 def index_to_utf16(text, index):
     """Convert a Python string index into a UTF-16 code-unit offset."""
     return sum(2 if ord(char) > 0xFFFF else 1 for char in text[:index])
+
+
+def byte_column_to_index(text, offset):
+    """Convert a UTF-8 byte offset within a line into a string index.
+
+    Zed's `$ZED_COLUMN` is a byte offset, not a UTF-16 one: its `Point.column`
+    advances by `c.len_utf8()` (`crates/rope/src/rope.rs`, `TextSummary::from`).
+    LSP positions in this script are UTF-16 and use `utf16_to_index` instead;
+    the two disagree on every non-ASCII line, so do not swap them.
+
+    An offset landing inside a multi-byte sequence snaps forward to the next
+    character boundary, which cannot corrupt the text.
+    """
+    encoded = text.encode("utf-8")
+    offset = max(0, min(offset, len(encoded)))
+    while offset < len(encoded) and (encoded[offset] & 0xC0) == 0x80:
+        offset += 1
+    return len(encoded[:offset].decode("utf-8"))
 
 
 def uri_to_path(uri):
@@ -1149,6 +1168,46 @@ def run_reindex(args, binary):
         sys.exit(result.returncode)
 
 
+def run_uuid(args, binary):
+    """Insert a Shopware-style UUID at the cursor, or print one.
+
+    32 lowercase hex characters: a v4 UUID with the dashes removed, which is
+    what `Uuid::randomHex()` produces and what the VS Code command inserts.
+    """
+    import uuid as uuid_module
+
+    value = uuid_module.uuid4().hex
+
+    if not args.target:
+        print(value)
+        return
+
+    path = os.path.abspath(args.target)
+    if not os.path.isfile(path):
+        sys.exit(f"not a file: {path}")
+
+    with open(path, encoding="utf-8") as handle:
+        lines = handle.read().splitlines(keepends=True)
+
+    index = max(0, min(args.row - 1, max(len(lines) - 1, 0)))
+    if not lines:
+        lines = [""]
+    line = lines[index]
+    # Zed passes a one-based UTF-8 byte column, and the trailing newline is
+    # not a valid insertion point.
+    body = line.rstrip("\n")
+    column = byte_column_to_index(body, max(args.column - 1, 0))
+    lines[index] = body[:column] + value + body[column:] + line[len(body) :]
+
+    if args.print_only:
+        print(f"would insert {value} at {relative(path, args.root)}:{index + 1}:{column + 1}")
+        return
+
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("".join(lines))
+    print(f"inserted {value} at {relative(path, args.root)}:{index + 1}:{column + 1}")
+
+
 def main():
     # `run` is handled before argparse: the positional `target` and `row` would
     # otherwise swallow the server's own arguments. A passthrough matters
@@ -1184,6 +1243,12 @@ def main():
     parser.add_argument("--text", help="text to extract, defaults to $ZED_SELECTED_TEXT")
     parser.add_argument("--domain", help="translation domain, skips the picker")
     parser.add_argument("--service", help="service id or class, skips the prompt")
+    parser.add_argument(
+        "--column",
+        type=int,
+        default=1,
+        help="one-based UTF-8 byte column; Zed passes $ZED_COLUMN",
+    )
     parser.add_argument("--extension", help="extension name, skips the picker")
     parser.add_argument(
         "--class",
@@ -1236,6 +1301,10 @@ def main():
         run_compiler_pass(args, binary)
         return
 
+    if args.action == "uuid":
+        run_uuid(args, binary)
+        return
+
     if not args.target:
         sys.exit(f"{args.action} needs a file")
 
@@ -1245,6 +1314,7 @@ def main():
         "admin-twig-override": run_admin_twig_override,
         "twig-block-diff": run_twig_block_diff,
         "template-usages": run_template_usages,
+        "uuid": run_uuid,
         "snippet": lambda a, b: run_snippet_create(a, b, "storefront"),
         "snippet-admin": lambda a, b: run_snippet_create(a, b, "admin"),
         "service-definition": run_service_definition,

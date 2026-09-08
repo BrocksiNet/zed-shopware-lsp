@@ -1,13 +1,18 @@
-// Copy the bindings into your Zed keymap.json.
+// Copy the bindings into your Zed keymap.json. The task_name must match the
+// label in tasks.json exactly; Zed silently does nothing when it does not.
 [
   {
     "context": "Editor && extension == twig",
     "bindings": {
-      "alt-shift-e": ["task::Spawn", { "task_name": "Shopware: add Twig extends" }],
-      "alt-shift-b": ["task::Spawn", { "task_name": "Shopware: add Twig blocks" }],
+      "alt-shift-e": ["task::Spawn", { "task_name": "Shopware: insert Twig extends" }],
+      "alt-shift-b": ["task::Spawn", { "task_name": "Shopware: insert Twig blocks" }],
       "alt-shift-f": [
         "task::Spawn",
-        { "task_name": "Shopware: generate Twig form rows" }
+        { "task_name": "Shopware: insert Twig form rows" }
+      ],
+      "alt-shift-t": [
+        "task::Spawn",
+        { "task_name": "Shopware: insert translation (extract selection)" }
       ],
       "alt-shift-s": [
         "task::Spawn",
@@ -15,41 +20,49 @@
       ],
       "alt-shift-o": [
         "task::Spawn",
-        { "task_name": "Shopware: override storefront block" }
+        { "task_name": "Shopware: create storefront block override" }
       ],
-      "alt-shift-i": ["task::Spawn", { "task_name": "Shopware: Twig block diff" }],
-      "alt-shift-t": [
+      "alt-shift-i": [
         "task::Spawn",
-        { "task_name": "Shopware: extract Twig translation" }
+        { "task_name": "Shopware: show Twig block diff" }
       ]
     }
   },
   {
     "context": "Editor && extension == php",
     "bindings": {
-      "alt-shift-f": ["task::Spawn", { "task_name": "Shopware: generate form fields" }],
+      "alt-shift-f": ["task::Spawn", { "task_name": "Shopware: insert form fields" }],
       "alt-shift-g": [
         "task::Spawn",
-        { "task_name": "Shopware: service definition for this class" }
+        { "task_name": "Shopware: show service definition" }
       ]
+    }
+  },
+  {
+    "context": "Editor",
+    "bindings": {
+      "alt-shift-u": ["task::Spawn", { "task_name": "Shopware: insert UUID" }]
     }
   },
   {
     "context": "Workspace",
     "bindings": {
-      "alt-shift-n": ["task::Spawn", { "task_name": "Shopware: scaffold (preview)" }],
+      "alt-shift-n": [
+        "task::Spawn",
+        { "task_name": "Shopware: create from scaffold (preview)" }
+      ],
       "alt-shift-d": [
         "task::Spawn",
-        { "task_name": "Shopware: diagnostics for this file" }
+        { "task_name": "Shopware: show diagnostics for this file" }
       ],
-      "alt-shift-r": ["task::Spawn", { "task_name": "Shopware: browse routes" }],
+      "alt-shift-r": ["task::Spawn", { "task_name": "Shopware: go to route" }],
       "alt-shift-l": [
         "task::Spawn",
-        { "task_name": "Shopware: locate selected service" }
+        { "task_name": "Shopware: go to service (selection)" }
       ],
-      "alt-shift-u": [
+      "alt-shift-x": [
         "task::Spawn",
-        { "task_name": "Shopware: who extends this template" }
+        { "task_name": "Shopware: go to templates extending this" }
       ]
     }
   }

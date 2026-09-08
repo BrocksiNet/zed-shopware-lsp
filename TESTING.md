@@ -1,7 +1,7 @@
 # Test plan
 
-Three layers, because the interesting behaviour lives in three places: our
-logic, upstream's artifacts, and Zed's runtime.
+Four layers, because the interesting behaviour lives in four places: the
+extension's logic, the task scripts, upstream's artifacts, and Zed's runtime.
 
 ## 1. Unit tests, `cargo test`
 
@@ -67,6 +67,24 @@ The guard is structural: both hooks call `remember_configuration`, so there is
 one place that builds and caches. Prefer collapsing call sites over adding a
 test that cannot reach them.
 
+
+## 1b. Script tests, `scripts/test-sw-action.py`
+
+Offline, no server binary. Covers the pure text helpers in `sw-action.py` and
+treats `examples/` as code, because it is what people copy:
+
+* `uri_to_path` / `path_to_uri` round-trip, including `#` and `?` in a path.
+  `urlparse` splits on both and would truncate the path, which is why the
+  script does not use it.
+* Both column conversions across an astral character, and the fact that they
+  disagree. LSP positions are UTF-16; Zed's `$ZED_COLUMN` is a UTF-8 byte
+  offset. An emoji earlier in the line shifts every insertion after it, and
+  reading one encoding as the other lands two positions short. An offset
+  inside a multi-byte sequence snaps forward rather than splitting it.
+* Every `keymap.json` `task_name` resolves to a label in `tasks.json`. Zed
+  silently does nothing on a mismatch, with no error in any log.
+* Every task passing `$ZED_FILE` declares a `save` strategy, and every task
+  names an action the script actually has.
 
 ## 2. Contract checks, `scripts/contract-check.py`
 
@@ -174,6 +192,10 @@ server. Re-run `zed: install dev extension` first.
       2026-09-07, so the snippets need no rewriting.
 - [ ] Multi-root workspace: with `context_servers.shopware-lsp.settings.root`
       set, the MCP server targets that root.
+- [ ] `Shopware: insert UUID` puts 32 hex characters at the cursor, not at the
+      start of the line. Test on a line with an emoji before the cursor:
+      `$ZED_COLUMN` is a UTF-8 byte offset, so a character-based or UTF-16
+      conversion lands in the wrong place.
 
 ## Fixtures worth knowing about
 
