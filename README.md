@@ -500,6 +500,20 @@ when installed and falls back to a numbered prompt.
 | `compiler-pass` | Create a compiler pass and register it in the bundle | verified |
 | `translation-extract` | Replace Twig text with a key, add it to every locale file | verified |
 | `twig-form-fields` | Pick a form variable and its fields, insert `form_row` calls | verified |
+| `routes` | Browse every Symfony route and open its controller | verified |
+| `locate-service` | Find where a service id or class is defined | verified |
+| `template-usages` | Find the templates that extend or include this one | verified |
+| `run` | Passthrough to the resolved server binary | verified |
+
+The navigation actions open the chosen result in Zed through its CLI, which
+accepts `path:line:column`. That CLI is only on `PATH` after running
+`cli: install` from Zed's command palette, so the app bundle is checked as
+well; with neither available the location is printed instead of opened.
+
+Two upstream analytics commands are deliberately not wired up, because both
+return nothing for Shopware: `doctrine/entities` is empty, since Shopware uses
+the DAL rather than Doctrine ORM, and `forms/types` is empty for the same
+reason `twig-form-fields` cannot be exercised here.
 
 `scaffold` covers both families: the `symfony` kinds return a single file, the
 `shopware` kinds a `WorkspaceEdit` that the script applies (including
