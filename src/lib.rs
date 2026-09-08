@@ -20,9 +20,14 @@ const OPEN_VSX_API: &str = "https://open-vsx.org/api/shopware/shopware-lsp";
 const CLIENT_PROTOCOL_VERSION: u32 = 1;
 
 struct ShopwareLspExtension {
-    /// Resolved once per extension process so a settings reload does not send
-    /// another request to Open VSX.
+    /// A path that came from settings or `Worktree::which`, remembered so both
+    /// hooks agree. Kept apart from `cached_download` on purpose: a download
+    /// must never outrank a binary the user installed, which is what happens
+    /// if the MCP server downloads before the language server looks at PATH.
     cached_binary_path: Option<String>,
+    /// The managed download, remembered so a settings reload does not send
+    /// another request to Open VSX.
+    cached_download: Option<String>,
     /// Remembered from the language server, which is the only hook that gets a
     /// `Worktree`. `Project` exposes worktree IDs but no paths, so this is the
     /// only way the MCP server can learn the project root.
@@ -191,11 +196,7 @@ impl ShopwareLspExtension {
     /// `status_id` is absent when the MCP server triggers the download, because
     /// installation status is a language-server-only concept in Zed.
     fn download_server(&mut self, status_id: Option<&LanguageServerId>) -> Result<String> {
-        if let Some(path) = self
-            .cached_binary_path
-            .clone()
-            .filter(|p| download_present(p))
-        {
+        if let Some(path) = self.cached_download.clone().filter(|p| download_present(p)) {
             return Ok(path);
         }
 
@@ -235,7 +236,7 @@ impl ShopwareLspExtension {
             );
         }
 
-        self.cached_binary_path = Some(binary.clone());
+        self.cached_download = Some(binary.clone());
         Ok(binary)
     }
 
@@ -307,6 +308,7 @@ impl zed::Extension for ShopwareLspExtension {
     fn new() -> Self {
         Self {
             cached_binary_path: None,
+            cached_download: None,
             cached_worktree_root: None,
         }
     }
@@ -615,6 +617,25 @@ mod tests {
         assert_eq!(
             resolve_server(Some("   ".into()), Some("/cached".into()), || None),
             Some("/cached".to_string())
+        );
+    }
+
+    #[test]
+    fn a_download_never_outranks_an_installed_binary() {
+        // The two caches are separate so that whichever hook runs first cannot
+        // pin the other to a download. Only authoritative paths, settings or
+        // Worktree::which, reach resolve_server as `cached`.
+        let which = || Some("/usr/local/bin/shopware-lsp".to_string());
+
+        // MCP downloading first must not stop the language server using PATH.
+        assert_eq!(
+            resolve_server(None, None, which),
+            Some("/usr/local/bin/shopware-lsp".to_string())
+        );
+        // An authoritative path, once known, is shared with the MCP hook.
+        assert_eq!(
+            resolve_server(None, Some("/usr/local/bin/shopware-lsp".into()), || None),
+            Some("/usr/local/bin/shopware-lsp".to_string())
         );
     }
 

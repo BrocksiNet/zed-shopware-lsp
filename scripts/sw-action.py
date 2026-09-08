@@ -36,6 +36,7 @@ import os
 import shutil
 import subprocess
 import sys
+from urllib.parse import unquote, urlparse
 
 # Generators shaped as: candidates -> pick -> generate -> text snippet.
 #
@@ -141,15 +142,43 @@ def action_names():
     return sorted(SNIPPET_ACTIONS) + sorted(OTHER_ACTIONS)
 
 
+def zed_managed_servers():
+    """Servers the Zed extension downloaded for itself.
+
+    Following the documented install leaves no binary on PATH at all, because
+    the extension keeps its download inside its own work directory. Newest
+    first, so a fresh download wins.
+    """
+    import glob
+
+    roots = [
+        "~/Library/Application Support/Zed/extensions/work/shopware-lsp",
+        "~/.local/share/zed/extensions/work/shopware-lsp",
+        "~/AppData/Local/Zed/extensions/work/shopware-lsp",
+    ]
+    found = []
+    for root in roots:
+        pattern = os.path.join(
+            os.path.expanduser(root), "shopware-lsp-*", "extension", "shopware-lsp"
+        )
+        found.extend(glob.glob(pattern))
+    return sorted(found, reverse=True)
+
+
 def server_binary():
-    for candidate in (
+    candidates = [
         os.environ.get("SHOPWARE_LSP_BIN"),
         shutil.which("shopware-lsp"),
         os.path.expanduser("~/.local/bin/shopware-lsp"),
-    ):
+        *zed_managed_servers(),
+    ]
+    for candidate in candidates:
         if candidate and os.path.isfile(candidate):
             return candidate
-    sys.exit("shopware-lsp not found; set SHOPWARE_LSP_BIN")
+    sys.exit(
+        "shopware-lsp not found. Set SHOPWARE_LSP_BIN, or install a server with "
+        "the extension's update-server.sh."
+    )
 
 
 def execute(binary, root, method, payload):
@@ -296,8 +325,33 @@ def run_twig_form_fields(args, binary):
     insert_snippet(path, args.row, snippet, args.print_only, args.root)
 
 
+def utf16_to_index(text, units):
+    """Convert a UTF-16 code-unit offset into a Python string index."""
+    if units <= 0:
+        return 0
+    consumed = 0
+    for index, char in enumerate(text):
+        if consumed >= units:
+            return index
+        consumed += 2 if ord(char) > 0xFFFF else 1
+    return len(text)
+
+
+def index_to_utf16(text, index):
+    """Convert a Python string index into a UTF-16 code-unit offset."""
+    return sum(2 if ord(char) > 0xFFFF else 1 for char in text[:index])
+
+
 def uri_to_path(uri):
-    return uri[len("file://") :] if uri.startswith("file://") else uri
+    """Filesystem path for a `file://` URI.
+
+    Percent-encoding has to be undone: a template called `with space.twig`
+    arrives as `with%20space.twig`, and writing that verbatim creates a second
+    file with a literal `%20` while leaving the original untouched.
+    """
+    if not uri.startswith("file://"):
+        return uri
+    return unquote(urlparse(uri).path)
 
 
 def twig_blocks(path, row):
@@ -481,13 +535,18 @@ def apply_workspace_edit(edit, dry_run, root):
     touched = []
 
     def offset(text, position):
+        """Python string index for an LSP position.
+
+        LSP columns count UTF-16 code units, Python indexes count code points.
+        Anything outside the BMP, an emoji in a Twig label for instance, makes
+        the two diverge and edits land mid-string.
+        """
         lines = text.splitlines(keepends=True)
         line = min(position["line"], len(lines))
         base = sum(len(entry) for entry in lines[:line])
-        column = position["character"]
-        if line < len(lines):
-            column = min(column, len(lines[line]))
-        return base + column
+        if line >= len(lines):
+            return base
+        return base + utf16_to_index(lines[line], position["character"])
 
     def apply_text_edits(path, edits):
         existing = ""
@@ -740,9 +799,13 @@ def locate_range(path, text, row):
     for index in order:
         column = lines[index].find(text)
         if column != -1:
+            # The server expects UTF-16 columns, so convert rather than send
+            # code-point indexes.
+            start = index_to_utf16(lines[index], column)
+            end = index_to_utf16(lines[index], column + len(text))
             return {
-                "start": {"line": index, "character": column},
-                "end": {"line": index, "character": column + len(text)},
+                "start": {"line": index, "character": start},
+                "end": {"line": index, "character": end},
             }
     sys.exit(f"could not find {text!r} in {os.path.basename(path)}")
 
