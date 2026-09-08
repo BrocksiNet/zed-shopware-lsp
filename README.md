@@ -129,7 +129,7 @@ existing is a common way to end up with no language server at all.
 }
 ```
 
-`settings` is forwarded verbatim on `workspace/configuration`, and
+`settings` is translated into the server's shape, not forwarded as written, and
 `initialization_options` on `initialize`. Project-level configuration lives in
 `.config/shopware/lsp.yaml` in the workspace root.
 
@@ -300,7 +300,7 @@ context server pointed straight at the binary.
 | VS Code contribution | Here |
 |---|---|
 | Language server | yes |
-| 18 `shopwareLSP.*` settings | yes, forwarded verbatim |
+| 18 `shopwareLSP.*` settings | translated; `activationMode` and `phpExecutable` cannot work in Zed |
 | MCP server | yes, as a context server |
 | Snippets (1 PHP, 6 config XML) | yes, ported and confirmed working |
 | `yamlValidation` for `lsp.yaml` | via `examples/settings.json`, pointing at the server's own schema |
