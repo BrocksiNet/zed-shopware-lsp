@@ -17,6 +17,13 @@ impossible here.
   commands, its entity designer, and its Twig block-diff viewer therefore
   cannot be ported. Do not try; check
   `zed_extension_api`'s `Extension` trait before promising an editor feature.
+- **The wasm sandbox has almost no environment.** Zed builds the WASI context
+  with `PWD` and `RUST_BACKTRACE` only, and preopens just the extension work
+  directory (`crates/extension_host/src/wasm_host.rs`). So there is no `PATH`
+  to search, and `fs::metadata` on any path outside the work dir always fails.
+  Never stat a path that came from settings or `Worktree::which`; filtering on
+  that silently discards valid configuration. `download_present` is named for
+  the only thing `fs` can honestly answer.
 - **`Project` exposes `worktree_ids()` but no paths**, and `zed::Command` has no
   working-directory field. Only `language_server_command` receives a
   `Worktree`, which is why the project root is cached from there for the MCP

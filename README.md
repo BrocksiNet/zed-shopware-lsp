@@ -86,14 +86,14 @@ downloaded server lives in the extension's work directory and goes with it.
 
 In order, first hit wins:
 
-1. `lsp.shopware-lsp.binary.path` from your Zed settings, **if it exists**
+1. `lsp.shopware-lsp.binary.path` from your Zed settings
 2. a `shopware-lsp` on `PATH`
 3. a managed download from Open VSX into the extension's work directory
 
-A configured path that no longer exists is skipped rather than spawned. Stale
-`binary.path` is common after a server moves or a workaround is retired, and
-honouring it produces an opaque `failed to spawn command` from Zed instead of
-a working server.
+A configured path is used as given. The extension cannot verify it exists:
+Zed's wasm sandbox preopens only the extension work directory, so any path
+outside it reads as missing from inside the extension. Zed reports a bad path
+when it fails to spawn.
 
 A local build therefore always beats the download, which is what you want when
 testing an unreleased server change via `build-server.sh`. Superseded downloads
@@ -210,11 +210,25 @@ and the seven `shopware_entity_schema_*` tools.
 
 Nothing to install: it reuses the same binary as the language server.
 
-The MCP server resolves its binary the same way the language server does:
-`command.path` from settings, then whatever the language server already
-resolved, then `PATH`, then a managed download. Without that last-but-one step
-the Agent Panel can end up running a different build from the editor, since
-`context_server_command` receives a `Project` and has no `Worktree::which`.
+The MCP server resolves its binary from `command.path`, then whatever the
+language server already resolved, then a managed download. It cannot look on
+`PATH`: `context_server_command` receives a `Project` rather than a `Worktree`,
+and Zed's wasm sandbox is given no `PATH` variable. Pin it explicitly if you
+run a server the extension did not download:
+
+```json
+{
+  "context_servers": {
+    "shopware-lsp": {
+      "command": { "path": "/Users/you/.local/bin/shopware-lsp" }
+    }
+  }
+}
+```
+
+Check with `ps | grep shopware-lsp` that the language server and the `mcp`
+process are on the same path; otherwise the Agent Panel answers from a
+different build than the editor.
 
 `shopware-lsp mcp` refuses to start outside a Shopware or Symfony project, and
 Zed's `Project` handle exposes worktree IDs but no paths, so the root is taken

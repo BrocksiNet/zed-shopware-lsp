@@ -131,52 +131,31 @@ fn merge_json(base: &mut zed::serde_json::Value, overlay: zed::serde_json::Value
     }
 }
 
-/// First `program` found in a `PATH`-style variable that `exists` accepts.
-///
-/// `Worktree::which` is the normal way to do this, but `context_server_command`
-/// receives a `Project`, which has no equivalent. Without this the MCP server
-/// falls straight through to a managed download and ignores a server the user
-/// installed themselves, so the Agent Panel can end up on a different build
-/// from the editor.
-fn find_on_path(
-    path_variable: &str,
-    program: &str,
-    exists: impl Fn(&str) -> bool,
-) -> Option<String> {
-    path_variable
-        .split(':')
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| format!("{}/{program}", entry.trim_end_matches('/')))
-        .find(|candidate| exists(candidate))
-}
-
 /// Pick a server from the sources both hooks share, in priority order.
 ///
-/// The ordering lived twice, once per hook, and drifted: the MCP hook skipped
-/// straight to a download and so ran a different build from the editor. Keeping
-/// it here means there is one order, expressed without host calls so it can be
-/// tested.
+/// Nothing here is stat'd. The wasm sandbox only preopens the extension work
+/// directory, so a path from settings or `Worktree::which` cannot be checked
+/// for existence from inside the extension; filtering on that made valid
+/// settings look missing. Zed reports a bad path when it fails to spawn.
 ///
-/// `None` means nothing usable was found and the caller should download.
+/// `None` means the caller should fall back to a managed download.
 fn resolve_server(
     configured: Option<String>,
     cached: Option<String>,
     lookup: impl FnOnce() -> Option<String>,
-    usable: impl Fn(&str) -> bool,
 ) -> Option<String> {
     configured
-        .filter(|path| usable(path))
-        .or_else(|| cached.filter(|path| usable(path)))
+        .filter(|path| !path.trim().is_empty())
+        .or(cached)
         .or_else(lookup)
 }
 
-/// Whether a configured `binary.path` is worth spawning.
+/// Whether a managed download is present in the extension's work directory.
 ///
-/// A path that no longer exists is almost always stale configuration, and
-/// honouring it turns into an opaque "failed to spawn command" from Zed.
-/// Falling through to PATH or a managed download gets the user a working
-/// server instead.
-fn usable_binary(path: &str) -> bool {
+/// Only the work dir is preopened for the wasm sandbox, so `fs` can answer for
+/// downloads and nothing else. A path from settings or `Worktree::which` lives
+/// outside it and always reads as missing, which is why neither is stat'd.
+fn download_present(path: &str) -> bool {
     !path.trim().is_empty()
         && fs::metadata(path)
             .map(|stat| stat.is_file())
@@ -212,13 +191,12 @@ impl ShopwareLspExtension {
     /// `status_id` is absent when the MCP server triggers the download, because
     /// installation status is a language-server-only concept in Zed.
     fn download_server(&mut self, status_id: Option<&LanguageServerId>) -> Result<String> {
-        if let Some(path) = &self.cached_binary_path {
-            if fs::metadata(path)
-                .map(|stat| stat.is_file())
-                .unwrap_or(false)
-            {
-                return Ok(path.clone());
-            }
+        if let Some(path) = self
+            .cached_binary_path
+            .clone()
+            .filter(|p| download_present(p))
+        {
+            return Ok(path);
         }
 
         if let Some(id) = status_id {
@@ -234,10 +212,7 @@ impl ShopwareLspExtension {
         let version_dir = format!("{SERVER_NAME}-{version}-{target}");
         let binary = binary_path_in(&version_dir);
 
-        if !fs::metadata(&binary)
-            .map(|stat| stat.is_file())
-            .unwrap_or(false)
-        {
+        if !download_present(&binary) {
             if let Some(id) = status_id {
                 zed::set_language_server_installation_status(
                     id,
@@ -286,18 +261,11 @@ impl ShopwareLspExtension {
     /// through `Worktree::which`, and an explicit `command.path` is handled by
     /// the caller.
     fn mcp_server_binary(&mut self, configured: Option<String>) -> Result<String> {
-        let resolved = resolve_server(
-            configured,
-            self.cached_binary_path.clone(),
-            || {
-                std::env::var("PATH")
-                    .ok()
-                    .and_then(|value| find_on_path(&value, SERVER_NAME, usable_binary))
-            },
-            usable_binary,
-        );
-
-        match resolved {
+        // No `Worktree::which` here, and the sandbox has neither PATH nor
+        // visibility outside the work dir, so there is nothing to look up:
+        // it is an explicit `command.path`, whatever the language server
+        // already resolved, or a managed download.
+        match resolve_server(configured, self.cached_binary_path.clone(), || None) {
             Some(path) => {
                 self.cached_binary_path = Some(path.clone());
                 Ok(path)
@@ -321,12 +289,9 @@ impl ShopwareLspExtension {
             .and_then(|settings| settings.binary)
             .and_then(|binary| binary.path);
 
-        let resolved = resolve_server(
-            configured,
-            self.cached_binary_path.clone(),
-            || worktree.which(SERVER_NAME),
-            usable_binary,
-        );
+        let resolved = resolve_server(configured, self.cached_binary_path.clone(), || {
+            worktree.which(SERVER_NAME)
+        });
 
         match resolved {
             Some(path) => {
@@ -625,111 +590,44 @@ mod tests {
     }
 
     #[test]
-    fn ignores_a_configured_path_that_no_longer_exists() {
-        // Stale binary.path is the common case after a server is moved or a
-        // workaround is retired. Spawning it fails opaquely; falling through
-        // to PATH or a download does not.
-        assert!(!usable_binary("/nonexistent/shopware-lsp"));
-        assert!(!usable_binary(""));
-        assert!(!usable_binary("   "));
-        // A directory is not a server either.
-        assert!(!usable_binary("/tmp"));
-        // Something that does exist and is a file.
-        assert!(usable_binary(
-            std::env::current_exe().unwrap().to_str().unwrap()
-        ));
-    }
-
-    #[test]
-    fn finds_the_server_on_a_path_variable() {
-        // The MCP hook gets a Project, which has no `which`, so PATH has to be
-        // walked by hand or the Agent Panel silently runs a different build
-        // from the editor.
-        let present = |candidate: &str| candidate == "/opt/homebrew/bin/shopware-lsp";
-
-        assert_eq!(
-            find_on_path("/usr/bin:/opt/homebrew/bin:/sbin", SERVER_NAME, present),
-            Some("/opt/homebrew/bin/shopware-lsp".to_string())
-        );
-        // Earlier entries win, matching how a shell resolves a command.
-        assert_eq!(
-            find_on_path(
-                "/opt/homebrew/bin:/usr/bin",
-                SERVER_NAME,
-                |candidate: &str| candidate.starts_with('/')
-            ),
-            Some("/opt/homebrew/bin/shopware-lsp".to_string())
-        );
-        // Trailing slashes and empty segments are common in a real PATH.
-        assert_eq!(
-            find_on_path("::/opt/homebrew/bin/:", SERVER_NAME, present),
-            Some("/opt/homebrew/bin/shopware-lsp".to_string())
-        );
-        assert_eq!(find_on_path("/usr/bin:/sbin", SERVER_NAME, present), None);
-        assert_eq!(find_on_path("", SERVER_NAME, present), None);
-    }
-
-    #[test]
     fn resolution_order_prefers_what_the_user_controls() {
-        let anything = |_: &str| true;
         let found = || Some("/from/lookup/shopware-lsp".to_string());
 
-        // Configured path wins over everything.
+        // An explicit setting wins, and is never stat'd: the sandbox preopens
+        // only the work dir, so checking it would reject every valid path.
         assert_eq!(
-            resolve_server(
-                Some("/configured".into()),
-                Some("/cached".into()),
-                found,
-                anything
-            ),
+            resolve_server(Some("/configured".into()), Some("/cached".into()), found),
             Some("/configured".to_string())
         );
-        // Then whatever was already resolved.
+        // Then whatever the language server already resolved.
         assert_eq!(
-            resolve_server(None, Some("/cached".into()), found, anything),
+            resolve_server(None, Some("/cached".into()), found),
             Some("/cached".to_string())
         );
-        // Then the lookup, which is PATH or Worktree::which.
+        // Then the lookup, which is Worktree::which and only the LSP hook has it.
         assert_eq!(
-            resolve_server(None, None, found, anything),
+            resolve_server(None, None, found),
             Some("/from/lookup/shopware-lsp".to_string())
         );
-        // Nothing usable means the caller downloads.
-        assert_eq!(resolve_server(None, None, || None, anything), None);
+        // The MCP hook passes no lookup, so it lands on a managed download.
+        assert_eq!(resolve_server(None, None, || None), None);
+        // A blank setting must not shadow the rest.
+        assert_eq!(
+            resolve_server(Some("   ".into()), Some("/cached".into()), || None),
+            Some("/cached".to_string())
+        );
     }
 
     #[test]
-    fn resolution_order_skips_paths_that_no_longer_exist() {
-        let only_cached = |path: &str| path == "/cached";
-        let nothing = |_: &str| false;
-
-        // A stale configured path must not shadow a working cached one; this
-        // is the case that produced "failed to spawn command" in Zed.
-        assert_eq!(
-            resolve_server(
-                Some("/gone".into()),
-                Some("/cached".into()),
-                || None,
-                only_cached
-            ),
-            Some("/cached".to_string())
-        );
-        // A stale cache falls through to the lookup.
-        assert_eq!(
-            resolve_server(
-                None,
-                Some("/gone".into()),
-                || Some("/found".to_string()),
-                nothing
-            ),
-            Some("/found".to_string())
-        );
-        // Both hooks share this, so the MCP server can no longer disagree with
-        // the language server about which binary to run.
-        assert_eq!(
-            resolve_server(None, Some("/gone".into()), || None, nothing),
-            None
-        );
+    fn download_presence_only_speaks_for_the_work_dir() {
+        assert!(!download_present(""));
+        assert!(!download_present("   "));
+        assert!(!download_present("/nonexistent/shopware-lsp"));
+        // A directory is not a server.
+        assert!(!download_present("/tmp"));
+        assert!(download_present(
+            std::env::current_exe().unwrap().to_str().unwrap()
+        ));
     }
 
     #[test]
