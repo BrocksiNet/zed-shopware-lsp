@@ -7,10 +7,16 @@ actions are covered by contract-check.py instead.
     python3 scripts/test-sw-action.py
 """
 
+import argparse
+import contextlib
 import importlib.util
+import io
 import json
+import os
 import pathlib
 import re
+import shutil
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -97,13 +103,82 @@ class ByteColumns(unittest.TestCase):
         self.assertEqual(sw.byte_column_to_index(self.LINE, 9999), len(self.LINE))
 
 
-class Uuid(unittest.TestCase):
-    def test_shape_matches_uuid_random_hex(self):
-        import uuid as uuid_module
+class InsertUuid(unittest.TestCase):
+    """run_uuid end to end, against real files in a temporary directory."""
 
-        for _ in range(20):
-            value = uuid_module.uuid4().hex
-            self.assertRegex(value, r"^[0-9a-f]{32}$")
+    HEX = r"[0-9a-f]{32}"
+
+    def insert(self, contents, row, column=1, print_only=False):
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory)
+        path = pathlib.Path(directory) / "buffer.twig"
+        path.write_text(contents, encoding="utf-8")
+        args = argparse.Namespace(
+            target=str(path), row=row, column=column,
+            print_only=print_only, root=directory,
+        )
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            sw.run_uuid(args, None)
+        return path.read_text(encoding="utf-8"), stdout.getvalue()
+
+    def test_inserts_on_the_final_blank_line(self):
+        # splitlines drops the empty segment after a trailing newline. Without
+        # it the row clamp walks back a line and appends to "hello" instead.
+        result, _ = self.insert("hello\n", row=2)
+        self.assertRegex(result, r"^hello\n" + self.HEX + r"$")
+
+    def test_inserts_at_the_start_of_the_first_line(self):
+        result, _ = self.insert("hello\n", row=1)
+        self.assertRegex(result, r"^" + self.HEX + r"hello\n$")
+
+    def test_inserts_mid_line_without_disturbing_the_rest(self):
+        result, _ = self.insert("<span></span>\n", row=1, column=7)
+        self.assertRegex(result, r"^<span>" + self.HEX + r"</span>\n$")
+
+    def test_byte_column_lands_after_an_astral_character(self):
+        # `<div data-id="` is 14 bytes, the emoji is 4, so Zed reports 19.
+        result, _ = self.insert('<div data-id="😀"></div>\n', row=1, column=19)
+        self.assertRegex(result, r'^<div data-id="😀' + self.HEX + r'"></div>\n$')
+
+    def test_empty_file(self):
+        result, _ = self.insert("", row=1)
+        self.assertRegex(result, r"^" + self.HEX + r"$")
+
+    def test_row_past_the_end_clamps_to_the_last_line(self):
+        result, _ = self.insert("a\nb\n", row=99)
+        self.assertRegex(result, r"^a\nb\n" + self.HEX + r"$")
+
+    def test_column_past_the_end_clamps_to_the_line_length(self):
+        result, _ = self.insert("ab\n", row=1, column=99)
+        self.assertRegex(result, r"^ab" + self.HEX + r"\n$")
+
+    def test_a_file_without_a_trailing_newline_keeps_its_last_line(self):
+        result, _ = self.insert("hello", row=1, column=6)
+        self.assertRegex(result, r"^hello" + self.HEX + r"$")
+
+    def test_print_only_leaves_the_file_alone(self):
+        result, output = self.insert("hello\n", row=2, print_only=True)
+        self.assertEqual(result, "hello\n")
+        self.assertIn("would insert", output)
+        self.assertIn("buffer.twig:2:1", output)
+
+    def test_reported_position_matches_where_it_landed(self):
+        _, output = self.insert("hello\n", row=2)
+        self.assertIn("buffer.twig:2:1", output)
+
+    def test_without_a_file_it_prints_a_uuid(self):
+        args = argparse.Namespace(
+            target=None, row=1, column=1, print_only=False, root=os.getcwd()
+        )
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            sw.run_uuid(args, None)
+        self.assertRegex(stdout.getvalue().strip(), r"^" + self.HEX + r"$")
+
+    def test_values_do_not_repeat(self):
+        seen = {self.insert("\n", row=1)[0].strip() for _ in range(10)}
+        self.assertEqual(len(seen), 10)
 
 
 class Examples(unittest.TestCase):

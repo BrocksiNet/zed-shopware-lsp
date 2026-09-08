@@ -1187,11 +1187,16 @@ def run_uuid(args, binary):
         sys.exit(f"not a file: {path}")
 
     with open(path, encoding="utf-8") as handle:
-        lines = handle.read().splitlines(keepends=True)
+        text = handle.read()
+    lines = text.splitlines(keepends=True)
+    # splitlines drops the empty segment after a trailing newline, but that is
+    # a real line to the editor and is where the cursor sits on a file ending
+    # in a blank line. Without it the clamp below silently walks the insertion
+    # back onto the previous line.
+    if not lines or text.endswith("\n"):
+        lines.append("")
 
-    index = max(0, min(args.row - 1, max(len(lines) - 1, 0)))
-    if not lines:
-        lines = [""]
+    index = max(0, min(args.row - 1, len(lines) - 1))
     line = lines[index]
     # Zed passes a one-based UTF-8 byte column, and the trailing newline is
     # not a valid insertion point.
