@@ -100,6 +100,40 @@ treats `examples/` as code, because it is what people copy:
   regression: `splitlines` drops the empty segment, so the row clamp walked
   the insertion back onto the previous line.
 
+### Mutation testing, on demand
+
+Not part of any run: `mutmut` takes about two minutes and its output needs
+reading, not gating. It exists to answer "do these tests actually test
+anything", which the hand-written break-it-and-restore check only answers for
+the line you happened to think of.
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install mutmut pytest
+.venv/bin/mutmut run --max-children 8
+.venv/bin/mutmut results | grep survived
+.venv/bin/mutmut show <mutant-name>      # the diff that survived
+```
+
+Configured in `setup.cfg`. Two things about it are load-bearing:
+
+* `also_copy` lists the test file and everything it reads. mutmut copies only
+  the mutated source into `mutants/`, so without it every mutant is "killed"
+  by a collection error and the run looks perfect.
+* the test file imports `sw-action.py` under the module name
+  `scripts.sw-action`, because that is how mutmut keys a mutant to its module.
+  Rename it and the run aborts with "trampoline hits but none match any
+  mutant key".
+
+Last run: 3038 mutants, 77 survived, 2701 untouched by any test. That third
+number is the server-dependent code, which has no offline coverage by design.
+
+Reading the output is most of the work. Most survivors are noise: `"utf-8"`
+becoming `"UTF-8"`, an fzf flag changing case, error-message wording. Real
+findings from the first run were the BMP and astral boundaries in the column
+helpers, the `max(line, 1)` clamp, the fzf ordinal bound, and the Windows and
+URI-authority branches, which had no coverage at all. Five tests for the last
+of those killed 30 mutants.
+
 ## 2. Contract checks, `scripts/contract-check.py`
 
 Guards the seams we do not own. Unit tests cannot notice when Open VSX changes

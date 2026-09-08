@@ -16,14 +16,20 @@ import os
 import pathlib
 import re
 import shutil
+import sys
 import tempfile
 import unittest
 from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-spec = importlib.util.spec_from_file_location("sw_action", ROOT / "scripts" / "sw-action.py")
+# The module name is the dotted file path on purpose: mutmut derives a
+# mutant's key the same way, and a mismatch aborts the run with "tests
+# recorded trampoline hits but none match any mutant key".
+MODULE = "scripts.sw-action"
+spec = importlib.util.spec_from_file_location(MODULE, ROOT / "scripts" / "sw-action.py")
 sw = importlib.util.module_from_spec(spec)
+sys.modules[MODULE] = sw
 spec.loader.exec_module(sw)
 
 
@@ -46,6 +52,27 @@ class UriRoundTrip(unittest.TestCase):
     def test_slashes_stay_unescaped(self):
         self.assertEqual(sw.path_to_uri("/a/b"), "file:///a/b")
 
+    def test_something_that_is_not_a_file_uri_passes_through(self):
+        self.assertEqual(sw.uri_to_path("/plain/path"), "/plain/path")
+
+    def test_a_windows_drive_loses_the_uri_leading_slash(self):
+        self.assertEqual(sw.uri_to_path("file:///C:/Users/x/a.twig"), "C:/Users/x/a.twig")
+        self.assertEqual(sw.uri_to_path("file:///C%3A/Users/x/a.twig"), "C:/Users/x/a.twig")
+
+    def test_a_windows_path_becomes_a_drive_uri(self):
+        # abspath is mocked because this branch is unreachable off Windows.
+        # The colon percent-encodes, which is what VS Code sends too.
+        with mock.patch.object(sw.os.path, "abspath", return_value="C:\\Users\\x\\a.twig"):
+            self.assertEqual(sw.path_to_uri("ignored"), "file:///C%3A/Users/x/a.twig")
+
+    def test_an_authority_component_is_skipped(self):
+        # Local file URIs have an empty authority, but a UNC-style one would
+        # otherwise be read as part of the path.
+        self.assertEqual(sw.uri_to_path("file://server/share/a.twig"), "/share/a.twig")
+
+    def test_an_authority_with_no_path_yields_the_root(self):
+        self.assertEqual(sw.uri_to_path("file://host"), "/")
+
 
 class Utf16Columns(unittest.TestCase):
     """LSP counts UTF-16 code units; Python counts characters. Emoji differ."""
@@ -64,6 +91,20 @@ class Utf16Columns(unittest.TestCase):
         for index in range(len(self.LINE) + 1):
             units = sw.index_to_utf16(self.LINE, index)
             self.assertEqual(sw.utf16_to_index(self.LINE, units), index)
+
+    def test_the_last_bmp_character_counts_as_one_unit(self):
+        # U+FFFF is the boundary: still one UTF-16 unit, so `>= 0xFFFF` is wrong.
+        text = "a\uffffb"
+        self.assertEqual(sw.index_to_utf16(text, 2), 2)
+        # Offset 3, not 2: at 2 both the correct and the off-by-one version
+        # answer 2, so it proves nothing.
+        self.assertEqual(sw.utf16_to_index(text, 3), 3)
+
+    def test_the_first_astral_character_counts_as_two_units(self):
+        # U+10000 is the other side of it, so `> 65536` is wrong too.
+        text = "a\U00010000b"
+        self.assertEqual(sw.index_to_utf16(text, 2), 3)
+        self.assertEqual(sw.utf16_to_index(text, 3), 2)
 
     def test_a_unit_inside_the_surrogate_pair_does_not_split_it(self):
         emoji = self.LINE.index("😀")
@@ -98,6 +139,12 @@ class ByteColumns(unittest.TestCase):
         start = len(self.LINE[:emoji].encode("utf-8"))
         for inside in range(start + 1, start + 4):
             self.assertEqual(sw.byte_column_to_index(self.LINE, inside), emoji + 1)
+
+    def test_the_first_astral_character_is_four_bytes(self):
+        self.assertEqual(sw.byte_column_to_index("a\U00010000b", 5), 2)
+
+    def test_the_last_bmp_character_is_three_bytes(self):
+        self.assertEqual(sw.byte_column_to_index("a\uffffb", 4), 2)
 
     def test_offsets_out_of_range_clamp(self):
         self.assertEqual(sw.byte_column_to_index(self.LINE, -5), 0)
@@ -247,6 +294,12 @@ class Picker(unittest.TestCase):
         indexes, _ = self.fzf(self.DUPLICATES, "0\tService\n2\tOther\n", multi=True)
         self.assertEqual(indexes, [0, 2])
 
+    def test_an_out_of_range_ordinal_from_fzf_is_ignored(self):
+        # fzf should never echo one, but accepting it would hand the caller an
+        # index past the end and raise IndexError instead of a clean message.
+        with self.assertRaises(SystemExit):
+            self.fzf(["a", "b"], "2\tc\n")
+
     def test_empty_fzf_output_exits(self):
         with self.assertRaises(SystemExit):
             self.fzf(self.DUPLICATES, "\n")
@@ -293,6 +346,18 @@ class PickLocation(unittest.TestCase):
         _, listing = self.pick("1")
         self.assertIn("a/One.php:10", listing)
         self.assertIn("b/Two.php:20", listing)
+
+    def test_a_zero_line_is_shown_as_line_one(self):
+        opened = {}
+        args = argparse.Namespace(root="/root", print_only=True)
+        with (
+            mock.patch.object(sw.shutil, "which", return_value=None),
+            mock.patch("builtins.input", return_value="1"),
+            mock.patch.object(sw, "open_location", lambda *a: opened.update(hit=True)),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+        ):
+            sw.pick_location([("Service", "/root/a.php", 0)], "service", args)
+        self.assertIn("a.php:1", out.getvalue())
 
     def test_an_entry_without_a_location_is_reported_not_opened(self):
         opened = {}
@@ -391,6 +456,49 @@ class InsertUuid(unittest.TestCase):
     def test_values_do_not_repeat(self):
         seen = {self.insert("\n", row=1)[0].strip() for _ in range(10)}
         self.assertEqual(len(seen), 10)
+
+
+class ParityDocumentation(unittest.TestCase):
+    """Keep upstream decisions, runnable tasks and public claims in agreement."""
+
+    def setUp(self):
+        self.parity = json.loads((ROOT / "inventory/parity.json").read_text())
+        self.readme = (ROOT / "README.md").read_text()
+        self.tasks = load_jsonc("examples/tasks.json")
+
+    def test_every_command_has_one_valid_decision(self):
+        known = set(sw.action_names()) - {"run"}
+        task_actions = {task["args"][1] for task in self.tasks}
+        for group in ("palette", "clientCommands"):
+            for command, decision in self.parity[group].items():
+                self.assertIn(set(decision), ({"action"}, {"gap"}), command)
+                if "action" in decision:
+                    self.assertIn(decision["action"], known, command)
+                    self.assertIn(decision["action"], task_actions, command)
+                else:
+                    self.assertTrue(decision["gap"].strip(), command)
+                    self.assertIn("`" + command.rsplit(".", 1)[-1] + "`", self.readme, command)
+                    self.assertIn(decision["gap"], self.readme, command)
+
+    def test_readme_counts_match_the_parity_map(self):
+        groups = [self.parity[key] for key in ("palette", "clientCommands")]
+        covered = [{v["action"] for v in group.values() if "action" in v} for group in groups]
+        counts = [sum("action" in v for v in group.values()) for group in groups]
+        self.assertIn(f"{counts[0]} of {len(groups[0])} palette commands and {counts[1]} of {len(groups[1])} client commands", self.readme)
+        self.assertIn(f"{len(covered[0] & covered[1])} actions serve both lists", self.readme)
+        for group, count, title in zip(groups, counts, ("palette commands", "client commands behind code actions")):
+            row = next(line for line in self.readme.splitlines() if line.startswith(f"| {len(group)} {title} |"))
+            self.assertIn(f"{count} equivalents as tasks", row)
+        self.assertIn(f"{len(sw.action_names()) - 1} named actions", self.readme)
+        self.assertIn(f"{len(self.tasks)} tasks", self.readme)
+
+    def test_documented_actions_match_the_script(self):
+        rows = re.findall(r"^\| `([^`]+)` \|", self.readme, re.M)
+        documented = [name for name in rows if name in sw.action_names()]
+        self.assertCountEqual(documented, sw.action_names())
+        mapped = {entry["action"] for group in ("palette", "clientCommands")
+                  for entry in self.parity[group].values() if "action" in entry}
+        self.assertEqual(mapped, set(sw.action_names()) - {"run"})
 
 
 class Examples(unittest.TestCase):

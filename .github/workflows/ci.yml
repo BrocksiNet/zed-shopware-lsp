@@ -28,7 +28,8 @@ jobs:
       - run: cargo test
 
       # Pure helpers in sw-action.py, plus examples/tasks.json against
-      # examples/keymap.json. Offline: no server binary, no network.
+      # examples/keymap.json and README parity against inventory/parity.json.
+      # Offline: no server binary, no network.
       - run: python3 scripts/test-sw-action.py
 
       # The artifact Zed actually loads.

@@ -319,7 +319,9 @@ all attached to code actions rather than to the palette.
 
 11 of 22 palette commands and 12 of 23 client commands have task
 equivalents. 3 actions serve both lists, which is how those add up to the
-20 named actions in the table above.
+20 named actions in the action table below, plus the `run` passthrough.
+The examples expose them through 22 tasks; tasks and upstream commands are
+not a one-to-one mapping.
 
 Not covered, and why:
 
@@ -330,10 +332,10 @@ Not covered, and why:
 | `insertSnippet`, `insertSnippetAtPosition` | worth adding; needs a picker over existing snippets |
 | `runConsoleCommandPicker`, `runConsoleCommand` | a task runs bin/console directly; only the picker is missing |
 | `extendComponent`, `overrideMethod` | picker-then-insert over Vue components, no equivalent yet |
-| `browseDoctrineEntities` | returns nothing for Shopware, which uses the DAL rather than Doctrine |
-| `browseProfilerRequests` | needs the profiler UI |
+| `browseDoctrineEntities` | no browser yet; useful for Symfony projects using Doctrine |
+| `browseProfilerRequests` | no profiler browser yet |
 | `restart` | Zed's own `language server: restart` covers it |
-| `copySnippetUsage` | clipboard-only convenience; no clipboard access from a task |
+| `copySnippetUsage` | clipboard convenience not implemented; would need platform-specific integration |
 | `createEventListener` | worth adding; the server command exists |
 | `openReferences` | declared in supportedCommands so the lenses render; Zed cannot execute it |
 

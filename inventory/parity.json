@@ -20,13 +20,13 @@
       "gap": "analytics browser, no equivalent yet"
     },
     "shopware.symfony.browseDoctrineEntities": {
-      "gap": "returns nothing for Shopware, which uses the DAL rather than Doctrine"
+      "gap": "no browser yet; useful for Symfony projects using Doctrine"
     },
     "shopware.symfony.browseFormTypes": {
       "gap": "analytics browser, no equivalent yet"
     },
     "shopware.symfony.browseProfilerRequests": {
-      "gap": "needs the profiler UI"
+      "gap": "no profiler browser yet"
     },
     "shopware.symfony.browseRoutes": {
       "action": "routes"
@@ -79,7 +79,7 @@
       "action": "admin-twig-override"
     },
     "shopware.copySnippetUsage": {
-      "gap": "clipboard-only convenience; no clipboard access from a task"
+      "gap": "clipboard convenience not implemented; would need platform-specific integration"
     },
     "shopware.createAdminSnippet": {
       "action": "snippet-admin"

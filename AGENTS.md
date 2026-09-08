@@ -80,6 +80,7 @@ impossible here.
 | `docs/mcp-settings-schema.json` | JSON schema for the context server's `settings`. Embedded with `include_str!`. |
 | `scripts/contract-check.py` | Verifies assumptions about Open VSX and the server binary. Network required. |
 | `scripts/test-sw-action.py` | Offline unit tests for `sw-action.py`'s pure helpers and for `examples/`. Runs in CI. |
+| `setup.cfg` | mutmut and pytest configuration. Mutation testing is on demand, not in CI. |
 | `scripts/sw-action.py` | Runs picker-based generator actions from a Zed task, since they cannot be code actions. |
 | `scripts/inventory.py` | Golden-file gate that reports new or removed upstream surface. |
 | `inventory/snapshot.json` | The accepted upstream surface. Update deliberately, never blindly. |
@@ -201,6 +202,12 @@ registry.
   disk, so `"current"` when contents are consumed and `"none"` when only the
   path is. Leaving it out reads a stale buffer and looks like a server bug.
 - Mutation-check new tests: break the code, confirm the test fails, restore.
+  This only covers the mutant you thought of. `mutmut` finds the rest; see
+  TESTING.md. It is deliberately not in CI, being slow and noisy, but a run
+  after adding tests to a pure helper is usually worth the two minutes.
+  A test can pass and still pin nothing: the first `utf16_to_index` boundary
+  test asserted at an offset where the correct and the off-by-one version
+  agree.
 - **Parity numbers are derived, not written.** `inventory/parity.json` holds a
   decision for every palette and client command, and the README's Command
   parity section restates its counts. `test-sw-action.py` fails when the two
