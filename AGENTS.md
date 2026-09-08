@@ -109,11 +109,11 @@ is pure and tested; `open_vsx_target()` is the one-line wrapper that calls
 New logic that lands inside the `Extension` impl is untestable by
 construction. Move it out.
 
-Coverage sits around 65% (`cargo llvm-cov --summary-only`) and the uncovered
-half is exactly the host boundary. Do not chase the number; do check that no
-decision is hiding in it. `resolve_server` exists because the binary
-resolution order was duplicated across two hooks, drifted, and shipped a bug
-where the MCP server ran a different build from the language server.
+Coverage sits around 71% (`cargo llvm-cov --summary-only`). The hooks follow
+"collect, plan, execute": gather host facts into a plain struct, hand them to a
+pure `plan_language_server` or `plan_context_server`, then carry out the
+result. Keep new logic in the planners; anything added to a hook body is
+untestable by construction.
 
 ## Commands
 

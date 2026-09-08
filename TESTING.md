@@ -35,28 +35,29 @@ argument order, and loosening the prune prefix each fail exactly one test.
 cargo llvm-cov --summary-only
 ```
 
-Around 65% of lines. The uncovered remainder is the host boundary: the
-`Extension` trait hooks and the functions that call `download_file`, `fetch`,
-`which` or `set_language_server_installation_status`. None of those run outside
-Zed, so the number will not move much further without a wasm host harness.
+Around 71% of lines. The hooks are now "collect, plan, execute": each one
+gathers what it needs from the host into a plain struct, hands it to a pure
+`plan_*` function, and carries out the result. So the decisions are testable
+without a wasm host, and what stays uncovered is the gathering and the host
+calls themselves.
 
 The number is not the goal. What matters is that no *decision* sits in the
-uncovered half. Every bug found here so far was a decision hiding inside a hook:
+uncovered half. Every bug found here so far was a decision hiding inside a
+hook:
 
 - the resolution order, duplicated per hook until it drifted and the MCP server
   ran a different binary from the editor, now `resolve_server`;
 - the settings shape, forwarded as the editor's `shopwareLSP` wrapper that the
-  server does not read, now `initialization_extras` and `project_configuration`;
-- the download directory and the MCP root and override precedence, now
+  server does not read, now `normalized_configuration`;
+- the update hook building a smaller configuration than initialize, which the
+  server treats as an instruction to unset the difference;
+- the download directory, the MCP root, and the override rule, now
   `download_layout`, `mcp_root` and `command_override`.
 
-So when something breaks in the uncovered half, the fix is to lift the decision
-out and test it, not to reach for a mocking framework.
-
-The next step up would be a seam for `Worktree`: a small trait with `which`,
-`settings`, `root_path` and `shell_env`, implemented for `zed::Worktree` and
-faked in tests. That would put most of `language_server_command` under test and
-is the only route past roughly 70%.
+One limitation to keep in mind: the hooks are two call sites that must pass the
+right facts to the right planner, and nothing tests that wiring. The tests pin
+the planners and the differences that make a wrong call visible, but a hook
+that hands over the wrong struct still compiles.
 
 
 ## 2. Contract checks, `scripts/contract-check.py`

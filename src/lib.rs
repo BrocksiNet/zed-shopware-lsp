@@ -247,6 +247,107 @@ fn memory_limit_env(shopware: &zed::serde_json::Value) -> Option<String> {
     (mib > 0).then(|| format!("{mib}MiB"))
 }
 
+/// Everything the language-server hook reads from the host.
+///
+/// Gathering it into a struct is what makes the decision testable: the hook
+/// becomes "collect, plan, execute", and only the collecting needs Zed.
+#[derive(Default)]
+struct LanguageServerFacts {
+    configured_binary: Option<String>,
+    arguments: Vec<String>,
+    shopware: zed::serde_json::Value,
+    on_path: Option<String>,
+    shell_env: Vec<(String, String)>,
+}
+
+/// What the hook should do, with no host calls left in it.
+#[derive(Debug, PartialEq)]
+struct LanguageServerPlan {
+    /// `None` means nothing was found and the caller must download.
+    binary: Option<String>,
+    args: Vec<String>,
+    env: Vec<(String, String)>,
+    memory_limit: Option<String>,
+}
+
+fn plan_language_server(
+    facts: LanguageServerFacts,
+    cached_binary: Option<String>,
+) -> LanguageServerPlan {
+    let memory_limit = memory_limit_env(&facts.shopware);
+
+    let mut env = facts.shell_env;
+    if let Some(limit) = memory_limit.clone() {
+        env.push(("GOMEMLIMIT".to_string(), limit));
+    }
+
+    LanguageServerPlan {
+        binary: resolve_server(facts.configured_binary, cached_binary, || facts.on_path),
+        args: facts.arguments,
+        env,
+        memory_limit,
+    }
+}
+
+/// Everything the MCP hook reads from the host.
+#[derive(Default)]
+struct ContextServerFacts {
+    command_path: Option<String>,
+    command_arguments: Option<Vec<String>>,
+    command_env: Vec<(String, String)>,
+    settings_root: Option<String>,
+}
+
+/// Remembered from the language server, because the MCP hook gets neither a
+/// `Worktree` nor Zed settings and so cannot work any of it out itself.
+#[derive(Default)]
+struct CarriedOver {
+    binary: Option<String>,
+    root: Option<String>,
+    configuration: Option<String>,
+    memory_limit: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
+struct ContextServerPlan {
+    binary: Option<String>,
+    args: Vec<String>,
+    env: Vec<(String, String)>,
+}
+
+fn plan_context_server(facts: ContextServerFacts, carried: CarriedOver) -> ContextServerPlan {
+    // The MCP process is spawned separately, so editor configuration reaches it
+    // only through the environment. Upstream uses the same two variables.
+    let mut env: Vec<(String, String)> = Vec::new();
+    if let Some(limit) = carried.memory_limit {
+        env.push(("GOMEMLIMIT".to_string(), limit));
+    }
+    if let Some(configuration) = carried.configuration.filter(|value| value != "{}") {
+        env.push((
+            "SHOPWARE_LSP_EDITOR_CONFIGURATION".to_string(),
+            configuration,
+        ));
+    }
+    // An explicit env block wins over both.
+    env.extend(facts.command_env);
+
+    if let Some((path, args)) =
+        command_override(facts.command_path.clone(), facts.command_arguments)
+    {
+        return ContextServerPlan {
+            binary: Some(path),
+            args,
+            env,
+        };
+    }
+
+    ContextServerPlan {
+        binary: resolve_server(facts.command_path, carried.binary, || None),
+        args: mcp_args(mcp_root(facts.settings_root.as_deref(), carried.root).as_deref()),
+        env,
+    }
+}
+
 /// Where a given release unpacks to, and the binary inside it.
 ///
 /// The directory name carries version and target so several can coexist while
@@ -404,26 +505,6 @@ impl ShopwareLspExtension {
         }
     }
 
-    /// Resolve the server for the MCP context server.
-    ///
-    /// Mirrors `server_binary` as closely as the API allows. There is no
-    /// `Worktree` here, so `PATH` is read from the environment rather than
-    /// through `Worktree::which`, and an explicit `command.path` is handled by
-    /// the caller.
-    fn mcp_server_binary(&mut self, configured: Option<String>) -> Result<String> {
-        // No `Worktree::which` here, and the sandbox has neither PATH nor
-        // visibility outside the work dir, so there is nothing to look up:
-        // it is an explicit `command.path`, whatever the language server
-        // already resolved, or a managed download.
-        match resolve_server(configured, self.cached_binary_path.clone(), || None) {
-            Some(path) => {
-                self.cached_binary_path = Some(path.clone());
-                Ok(path)
-            }
-            None => self.download_server(None),
-        }
-    }
-
     /// The `shopwareLSP` block from Zed settings, or an empty object.
     fn shopware_settings(worktree: &zed::Worktree) -> zed::serde_json::Value {
         LspSettings::for_worktree(SERVER_NAME, worktree)
@@ -431,34 +512,6 @@ impl ShopwareLspExtension {
             .and_then(|settings| settings.settings)
             .and_then(|settings| settings.get("shopwareLSP").cloned())
             .unwrap_or_else(|| zed::serde_json::json!({}))
-    }
-
-    /// Resolve the server, preferring anything the user controls.
-    ///
-    /// An explicit path wins, then a `shopware-lsp` already on PATH, and only
-    /// then a managed download. That order matters: a locally built server is
-    /// usually newer, or carries fixes the published build does not have yet.
-    fn server_binary(
-        &mut self,
-        language_server_id: &LanguageServerId,
-        worktree: &zed::Worktree,
-    ) -> Result<String> {
-        let configured = LspSettings::for_worktree(SERVER_NAME, worktree)
-            .ok()
-            .and_then(|settings| settings.binary)
-            .and_then(|binary| binary.path);
-
-        let resolved = resolve_server(configured, self.cached_binary_path.clone(), || {
-            worktree.which(SERVER_NAME)
-        });
-
-        match resolved {
-            Some(path) => {
-                self.cached_binary_path = Some(path.clone());
-                Ok(path)
-            }
-            None => self.download_server(Some(language_server_id)),
-        }
     }
 }
 
@@ -480,25 +533,34 @@ impl zed::Extension for ShopwareLspExtension {
     ) -> Result<zed::Command> {
         self.cached_worktree_root = Some(worktree.root_path());
 
-        let arguments = LspSettings::for_worktree(SERVER_NAME, worktree)
-            .ok()
-            .and_then(|settings| settings.binary)
-            .and_then(|binary| binary.arguments)
-            .unwrap_or_default();
+        let lsp = LspSettings::for_worktree(SERVER_NAME, worktree).ok();
+        let binary_settings = lsp.as_ref().and_then(|settings| settings.binary.as_ref());
+        let facts = LanguageServerFacts {
+            configured_binary: binary_settings.and_then(|binary| binary.path.clone()),
+            arguments: binary_settings
+                .and_then(|binary| binary.arguments.clone())
+                .unwrap_or_default(),
+            shopware: Self::shopware_settings(worktree),
+            on_path: worktree.which(SERVER_NAME),
+            shell_env: worktree.shell_env(),
+        };
 
-        let mut env = worktree.shell_env();
-        // memoryLimitMiB has no server-side setting; the server reads
-        // GOMEMLIMIT, so the client has to apply it when spawning.
-        if let Some(limit) = memory_limit_env(&Self::shopware_settings(worktree)) {
-            env.push(("GOMEMLIMIT".to_string(), limit.clone()));
-            self.cached_memory_limit = Some(limit);
-        }
+        let plan = plan_language_server(facts, self.cached_binary_path.clone());
+        self.cached_memory_limit = plan.memory_limit;
+
+        let binary = match plan.binary {
+            Some(path) => {
+                self.cached_binary_path = Some(path.clone());
+                path
+            }
+            None => self.download_server(Some(language_server_id))?,
+        };
 
         Ok(zed::Command {
-            command: self.server_binary(language_server_id, worktree)?,
+            command: binary,
             // No subcommand: the binary starts a stdio language server by default.
-            args: arguments,
-            env,
+            args: plan.args,
+            env: plan.env,
         })
     }
 
@@ -567,60 +629,44 @@ impl zed::Extension for ShopwareLspExtension {
         project: &Project,
     ) -> Result<zed::Command> {
         let settings = ContextServerSettings::for_project(context_server_id.as_ref(), project).ok();
-
         let command = settings.as_ref().and_then(|s| s.command.as_ref());
 
-        // The MCP process is spawned separately and reads neither Zed settings
-        // nor the language server's initialize payload, so editor
-        // configuration reaches it only through the environment. Upstream uses
-        // the same two variables.
-        let mut env: Vec<(String, String)> = Vec::new();
-        if let Some(limit) = self.cached_memory_limit.clone() {
-            env.push(("GOMEMLIMIT".to_string(), limit));
-        }
-        if let Some(configuration) = self
-            .cached_configuration
-            .clone()
-            .filter(|value| value != "{}")
-        {
-            env.push((
-                "SHOPWARE_LSP_EDITOR_CONFIGURATION".to_string(),
-                configuration,
-            ));
-        }
-        // An explicit env block wins over both.
-        env.extend(
-            command
+        let facts = ContextServerFacts {
+            command_path: command.and_then(|c| c.path.clone()),
+            command_arguments: command.and_then(|c| c.arguments.clone()),
+            command_env: command
                 .and_then(|c| c.env.clone())
-                .map(|values| values.into_iter().collect::<Vec<_>>())
+                .map(|values| values.into_iter().collect())
                 .unwrap_or_default(),
-        );
-
-        if let Some((path, args)) = command_override(
-            command.and_then(|c| c.path.clone()),
-            command.and_then(|c| c.arguments.clone()),
-        ) {
-            return Ok(zed::Command {
-                command: path,
-                args,
-                env,
-            });
-        }
-
-        let root = mcp_root(
-            settings
+            settings_root: settings
                 .as_ref()
                 .and_then(|s| s.settings.as_ref())
-                .and_then(|s| s["root"].as_str()),
-            self.cached_worktree_root.clone(),
+                .and_then(|s| s["root"].as_str())
+                .map(str::to_string),
+        };
+
+        let plan = plan_context_server(
+            facts,
+            CarriedOver {
+                binary: self.cached_binary_path.clone(),
+                root: self.cached_worktree_root.clone(),
+                configuration: self.cached_configuration.clone(),
+                memory_limit: self.cached_memory_limit.clone(),
+            },
         );
 
-        let args = mcp_args(root.as_deref());
+        let binary = match plan.binary {
+            Some(path) => {
+                self.cached_binary_path = Some(path.clone());
+                path
+            }
+            None => self.download_server(None)?,
+        };
 
         Ok(zed::Command {
-            command: self.mcp_server_binary(command.and_then(|c| c.path.clone()))?,
-            args,
-            env,
+            command: binary,
+            args: plan.args,
+            env: plan.env,
         })
     }
 
@@ -944,6 +990,100 @@ mod tests {
             None
         );
         assert_eq!(memory_limit_env(&zed::serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn language_server_plan_covers_the_whole_hook() {
+        let facts = LanguageServerFacts {
+            configured_binary: None,
+            arguments: vec!["-rpc.trace".into()],
+            shopware: zed::serde_json::json!({"memoryLimitMiB": 512}),
+            on_path: Some("/usr/local/bin/shopware-lsp".into()),
+            shell_env: vec![("PATH".into(), "/usr/bin".into())],
+        };
+        let plan = plan_language_server(facts, None);
+
+        assert_eq!(plan.binary.as_deref(), Some("/usr/local/bin/shopware-lsp"));
+        assert_eq!(plan.args, vec!["-rpc.trace".to_string()]);
+        assert_eq!(plan.memory_limit.as_deref(), Some("512MiB"));
+        // The shell environment is preserved, with the limit appended.
+        assert_eq!(plan.env[0], ("PATH".to_string(), "/usr/bin".to_string()));
+        assert_eq!(
+            plan.env[1],
+            ("GOMEMLIMIT".to_string(), "512MiB".to_string())
+        );
+    }
+
+    #[test]
+    fn language_server_plan_asks_for_a_download_when_nothing_is_found() {
+        let plan = plan_language_server(LanguageServerFacts::default(), None);
+        assert_eq!(plan.binary, None, "None is the signal to download");
+        assert!(plan.env.is_empty());
+        assert_eq!(plan.memory_limit, None);
+    }
+
+    #[test]
+    fn context_server_plan_carries_editor_settings_across() {
+        // The MCP process reads neither Zed settings nor the initialize
+        // payload, so this environment is the only way those reach it.
+        let plan = plan_context_server(
+            ContextServerFacts::default(),
+            CarriedOver {
+                binary: Some("/usr/local/bin/shopware-lsp".into()),
+                root: Some("/srv/shop".into()),
+                configuration: Some(r#"{"features":{"hover":true}}"#.into()),
+                memory_limit: Some("512MiB".into()),
+            },
+        );
+
+        assert_eq!(plan.binary.as_deref(), Some("/usr/local/bin/shopware-lsp"));
+        assert_eq!(plan.args, vec!["-root", "/srv/shop", "mcp"]);
+        assert_eq!(
+            plan.env,
+            vec![
+                ("GOMEMLIMIT".to_string(), "512MiB".to_string()),
+                (
+                    "SHOPWARE_LSP_EDITOR_CONFIGURATION".to_string(),
+                    r#"{"features":{"hover":true}}"#.to_string()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn context_server_plan_skips_an_empty_configuration() {
+        let plan = plan_context_server(
+            ContextServerFacts::default(),
+            CarriedOver {
+                configuration: Some("{}".into()),
+                ..Default::default()
+            },
+        );
+        // An empty object is noise, and the server decodes this strictly.
+        assert!(plan.env.is_empty());
+        assert_eq!(plan.binary, None);
+        assert_eq!(plan.args, vec!["mcp".to_string()]);
+    }
+
+    #[test]
+    fn context_server_plan_lets_an_explicit_command_win() {
+        let plan = plan_context_server(
+            ContextServerFacts {
+                command_path: Some("/opt/sw".into()),
+                command_arguments: Some(vec!["mcp".into()]),
+                command_env: vec![("GOMEMLIMIT".into(), "256MiB".into())],
+                settings_root: Some("/ignored".into()),
+            },
+            CarriedOver {
+                memory_limit: Some("512MiB".into()),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(plan.binary.as_deref(), Some("/opt/sw"));
+        assert_eq!(plan.args, vec!["mcp".to_string()]);
+        // The explicit env comes last, so it overrides the carried value.
+        assert_eq!(plan.env.last().unwrap().1, "256MiB");
     }
 
     #[test]
