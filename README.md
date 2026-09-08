@@ -412,6 +412,28 @@ does.
 
 ## Troubleshooting
 
+### "failed to spawn command ... No such file or directory (os error 2)"
+
+The message names the server binary, but the missing path is often the
+`current_dir` at the end of the same line. `spawn` reports ENOENT for a
+missing working directory exactly as it does for a missing program, so the two
+are indistinguishable from the text.
+
+Check the binary first. If it runs, the working directory is the problem:
+
+```bash
+"$HOME/Library/Application Support/Zed/extensions/work/shopware-lsp"/*/extension/shopware-lsp version
+```
+
+A worktree whose directory has been deleted underneath Zed produces this. A
+temporary project is the usual way in: open a file under `/tmp` or
+`/var/folders`, the OS reclaims it, and Zed keeps trying to start a server
+there. Such worktrees are not persisted, so restarting Zed clears them;
+otherwise close that window or remove the folder from the project.
+
+The extension cannot prevent it. Zed sets the working directory from the
+worktree, and `zed::Command` has no field for it.
+
 ### Thousands of "Service ... not found" or "Parameter ... not found"
 
 The server checks service and parameter references against Symfony's **dev

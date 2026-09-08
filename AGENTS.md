@@ -24,6 +24,10 @@ impossible here.
   Never stat a path that came from settings or `Worktree::which`; filtering on
   that silently discards valid configuration. `download_present` is named for
   the only thing `fs` can honestly answer.
+- **`zed::Command` has no working-directory field**, so Zed runs the server in
+  the worktree root. If that directory is deleted, `spawn` fails with ENOENT
+  naming the *program*, because the OS reports a missing cwd identically. The
+  extension cannot detect or prevent it; see the README troubleshooting entry.
 - **`Project` exposes `worktree_ids()` but no paths**, and `zed::Command` has no
   working-directory field. Only `language_server_command` receives a
   `Worktree`, which is why the project root is cached from there for the MCP
