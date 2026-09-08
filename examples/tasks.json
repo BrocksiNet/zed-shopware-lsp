@@ -152,15 +152,29 @@
     "reveal": "always"
   },
   {
+    // Through sw-action.py rather than calling shopware-lsp directly: after the
+    // documented install the only copy is inside Zed's extension directory and
+    // is not on PATH, so a direct call fails.
     "label": "Shopware: diagnostics for this file",
-    "command": "shopware-lsp",
-    "args": ["-root", "$ZED_WORKTREE_ROOT", "check", "$ZED_FILE"],
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "run",
+      "--",
+      "-root",
+      "$ZED_WORKTREE_ROOT",
+      "check",
+      "$ZED_FILE"
+    ],
     "reveal": "always"
   },
   {
     "label": "Shopware: browse Symfony routes",
-    "command": "shopware-lsp",
+    "command": "python3",
     "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "run",
+      "--",
       "-root",
       "$ZED_WORKTREE_ROOT",
       "execute",

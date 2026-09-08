@@ -33,10 +33,11 @@ with --key, --value, --block, --extension, --name, --class and --option.
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote
 
 # Generators shaped as: candidates -> pick -> generate -> text snippet.
 #
@@ -135,6 +136,7 @@ OTHER_ACTIONS = {
     "service-definition": "Render a Symfony service definition for a class",
     "compiler-pass": "Create a compiler pass and register it in a bundle",
     "translation-extract": "Extract selected Twig text into a translation",
+    "run": "Run the resolved server binary with the given arguments",
 }
 
 
@@ -159,9 +161,13 @@ def zed_managed_servers():
     found = []
     for root in roots:
         pattern = os.path.join(
-            os.path.expanduser(root), "shopware-lsp-*", "extension", "shopware-lsp"
+            os.path.expanduser(root), "shopware-lsp-*", "extension", "shopware-lsp*"
         )
-        found.extend(glob.glob(pattern))
+        found.extend(
+            entry
+            for entry in glob.glob(pattern)
+            if os.path.basename(entry) in ("shopware-lsp", "shopware-lsp.exe")
+        )
     return sorted(found, reverse=True)
 
 
@@ -169,6 +175,7 @@ def server_binary():
     candidates = [
         os.environ.get("SHOPWARE_LSP_BIN"),
         shutil.which("shopware-lsp"),
+        shutil.which("shopware-lsp.exe"),
         os.path.expanduser("~/.local/bin/shopware-lsp"),
         *zed_managed_servers(),
     ]
@@ -266,7 +273,7 @@ def run_snippet_action(spec, args, binary):
     with open(path, encoding="utf-8") as handle:
         source = handle.read()
 
-    request = {"fileUri": "file://" + path, "source": source, "version": 1}
+    request = {"fileUri": path_to_uri(path), "source": source, "version": 1}
     if spec.get("needs_class"):
         class_name = args.class_name or resolve_class(binary, args.root, path)
         if not class_name:
@@ -294,7 +301,7 @@ def run_twig_form_fields(args, binary):
     if not os.path.isfile(path):
         sys.exit(f"not a file: {path}")
 
-    request = {"fileUri": "file://" + path}
+    request = {"fileUri": path_to_uri(path)}
     data = execute(
         binary, args.root, "shopware/symfony/twig/form/fields/candidates", request
     )
@@ -345,13 +352,35 @@ def index_to_utf16(text, index):
 def uri_to_path(uri):
     """Filesystem path for a `file://` URI.
 
-    Percent-encoding has to be undone: a template called `with space.twig`
-    arrives as `with%20space.twig`, and writing that verbatim creates a second
-    file with a literal `%20` while leaving the original untouched.
+    Deliberately not `urlparse`: it splits on `#` and `?`, so `a#b.twig` comes
+    back as `a`. A file URI has no query or fragment, so everything after the
+    authority is path and only percent-decoding is needed.
+
+    A Windows URI carries the drive as `/C:/...`; the leading slash is dropped.
     """
     if not uri.startswith("file://"):
         return uri
-    return unquote(urlparse(uri).path)
+    rest = uri[len("file://") :]
+    # Skip an authority component, which is empty for local files.
+    if not rest.startswith("/"):
+        rest = "/" + rest.split("/", 1)[-1] if "/" in rest else "/"
+    path = unquote(rest)
+    if re.match(r"^/[A-Za-z]:", path):
+        path = path[1:]
+    return path
+
+
+def path_to_uri(path):
+    """`file://` URI for a filesystem path.
+
+    Outgoing paths need encoding for the same reason incoming ones need
+    decoding: a space or a `#` in a template name otherwise produces a URI the
+    server reads as a different file.
+    """
+    path = os.path.abspath(path)
+    if re.match(r"^[A-Za-z]:", path):
+        path = "/" + path.replace("\\", "/")
+    return "file://" + quote(path, safe="/")
 
 
 def twig_blocks(path, row):
@@ -414,7 +443,7 @@ def run_snippet_create(args, binary, domain):
         binary,
         args.root,
         f"shopware/snippet/{domain}/getPossibleSnippetFiles",
-        {"fileUri": "file://" + path},
+        {"fileUri": path_to_uri(path)},
     )
     paths = (listed or {}).get("paths") or []
     if not paths:
@@ -435,7 +464,7 @@ def run_snippet_create(args, binary, domain):
         args.root,
         f"shopware/snippet/{domain}/create",
         {
-            "fileUri": "file://" + path,
+            "fileUri": path_to_uri(path),
             "snippetKey": key,
             "snippets": [
                 {"path": entry["path"], "name": entry.get("name", ""), "value": value}
@@ -466,7 +495,7 @@ def run_twig_extend_block(args, binary):
         binary,
         args.root,
         "shopware/twig/extendBlock",
-        {"textUri": "file://" + path, "blockName": block, "extension": extension},
+        {"textUri": path_to_uri(path), "blockName": block, "extension": extension},
     )
     if not isinstance(result, dict) or result.get("message"):
         sys.exit(f"server refused: {(result or {}).get('message', result)}")
@@ -493,7 +522,7 @@ def run_admin_twig_override(args, binary):
         binary,
         args.root,
         "shopware/admin/twig/override",
-        {"textUri": "file://" + path, "blockName": block, "extension": extension},
+        {"textUri": path_to_uri(path), "blockName": block, "extension": extension},
     )
     if not isinstance(result, dict) or result.get("message"):
         sys.exit(f"server refused: {(result or {}).get('message', result)}")
@@ -518,7 +547,7 @@ def run_twig_block_diff(args, binary):
         binary,
         args.root,
         "shopware/twig/getBlockDiff",
-        {"textUri": "file://" + path, "blockName": block},
+        {"textUri": path_to_uri(path), "blockName": block},
     )
     if isinstance(result, dict) and result.get("message"):
         sys.exit(f"server refused: {result['message']}")
@@ -638,7 +667,7 @@ def run_scaffold(args, binary):
     directory = os.path.abspath(args.target or args.root)
     request = {
         "kind": entry["kind"],
-        "directoryUri": "file://" + directory,
+        "directoryUri": path_to_uri(directory),
         "name": name,
     }
 
@@ -712,7 +741,7 @@ def run_service_definition(args, binary):
         args.root,
         "shopware/symfony/service/generate",
         {
-            "fileUri": "file://" + path,
+            "fileUri": path_to_uri(path),
             "source": source,
             "version": 1,
             "className": class_name,
@@ -755,7 +784,7 @@ def run_compiler_pass(args, binary):
         args.root,
         "shopware/symfony/compilerPass/create",
         {
-            "bundleUri": "file://" + bundle_path,
+            "bundleUri": path_to_uri(bundle_path),
             "bundleClass": bundle_class,
             "className": name,
             "source": bundle_source,
@@ -829,7 +858,7 @@ def run_translation_extract(args, binary):
     # its own snapshot and rejects any value with "syntax element handle is
     # stale". Omitting it lets the server use the snapshot it already has.
     request = {
-        "fileUri": "file://" + path,
+        "fileUri": path_to_uri(path),
         "source": source,
         "range": selection,
     }
@@ -869,14 +898,14 @@ def run_translation_extract(args, binary):
 
         changes = [
             {
-                "textDocument": {"uri": "file://" + path, "version": None},
+                "textDocument": {"uri": path_to_uri(path), "version": None},
                 "edits": [
                     {"range": result.get("range", selection), "newText": replacement}
                 ],
             }
         ]
         for target in result.get("targets") or []:
-            uri = target.get("fileUri") or ("file://" + target.get("file", ""))
+            uri = target.get("fileUri") or path_to_uri(target.get("file", ""))
             position = {
                 "line": target.get("line", 0),
                 "character": target.get("character", 0),
@@ -898,6 +927,17 @@ def run_translation_extract(args, binary):
 
 
 def main():
+    # `run` is handled before argparse: the positional `target` and `row` would
+    # otherwise swallow the server's own arguments. A passthrough matters
+    # because tasks must not hardcode a path; the only copy of the binary is
+    # often the one the Zed extension downloaded for itself.
+    if len(sys.argv) > 1 and sys.argv[1] == "run":
+        forwarded = sys.argv[2:]
+        if forwarded and forwarded[0] == "--":
+            forwarded = forwarded[1:]
+        binary = server_binary()
+        os.execv(binary, [binary, *forwarded])
+
     parser = argparse.ArgumentParser(
         description="Run shopware-lsp generators that cannot be Zed code actions."
     )
