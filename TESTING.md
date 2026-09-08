@@ -54,10 +54,18 @@ hook:
 - the download directory, the MCP root, and the override rule, now
   `download_layout`, `mcp_root` and `command_override`.
 
-One limitation to keep in mind: the hooks are two call sites that must pass the
+One limitation to keep in mind: the hooks are call sites that must pass the
 right facts to the right planner, and nothing tests that wiring. The tests pin
 the planners and the differences that make a wrong call visible, but a hook
 that hands over the wrong struct still compiles.
+
+That is not hypothetical. The configuration hooks each built the object and
+only initialize cached it, so after a settings change the language server had
+the new configuration while a later MCP restart still used the old one. No unit
+test could see it, and reintroducing it now still compiles and still passes.
+The guard is structural: both hooks call `remember_configuration`, so there is
+one place that builds and caches. Prefer collapsing call sites over adding a
+test that cannot reach them.
 
 
 ## 2. Contract checks, `scripts/contract-check.py`

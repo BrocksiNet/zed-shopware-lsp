@@ -505,6 +505,25 @@ impl ShopwareLspExtension {
         }
     }
 
+    /// Build the editor configuration and remember it for the MCP process.
+    ///
+    /// Both configuration hooks go through here. They previously built the
+    /// object separately and only initialize cached it, so after a settings
+    /// change the language server saw the new configuration while a later MCP
+    /// restart still got the old one, `mcp.tools` included.
+    fn remember_configuration(&mut self, worktree: &zed::Worktree) -> zed::serde_json::Value {
+        let user = LspSettings::for_worktree(SERVER_NAME, worktree)
+            .ok()
+            .and_then(|settings| settings.initialization_options);
+
+        let configuration = normalized_configuration(
+            &Self::shopware_settings(worktree),
+            user.as_ref().and_then(|value| value.get("configuration")),
+        );
+        self.cached_configuration = zed::serde_json::to_string(&configuration).ok();
+        configuration
+    }
+
     /// The `shopwareLSP` block from Zed settings, or an empty object.
     fn shopware_settings(worktree: &zed::Worktree) -> zed::serde_json::Value {
         LspSettings::for_worktree(SERVER_NAME, worktree)
@@ -575,14 +594,7 @@ impl zed::Extension for ShopwareLspExtension {
         _language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<Option<zed::serde_json::Value>> {
-        let user = LspSettings::for_worktree(SERVER_NAME, worktree)
-            .ok()
-            .and_then(|settings| settings.initialization_options);
-
-        Ok(Some(normalized_configuration(
-            &Self::shopware_settings(worktree),
-            user.as_ref().and_then(|value| value.get("configuration")),
-        )))
+        Ok(Some(self.remember_configuration(worktree)))
     }
 
     fn language_server_initialization_options(
@@ -590,17 +602,10 @@ impl zed::Extension for ShopwareLspExtension {
         _language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<Option<zed::serde_json::Value>> {
+        let configuration = self.remember_configuration(worktree);
         let user = LspSettings::for_worktree(SERVER_NAME, worktree)
             .ok()
             .and_then(|settings| settings.initialization_options);
-
-        let configuration = normalized_configuration(
-            &Self::shopware_settings(worktree),
-            user.as_ref().and_then(|value| value.get("configuration")),
-        );
-        // Remembered so `didChangeConfiguration` and the MCP process send the
-        // same object; the server replaces the overlay rather than merging it.
-        self.cached_configuration = zed::serde_json::to_string(&configuration).ok();
 
         let mut options = default_initialization_options();
         if configuration.as_object().is_some_and(|map| !map.is_empty()) {
@@ -1048,6 +1053,42 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn the_configuration_the_editor_gets_is_the_one_the_agent_gets() {
+        // remember_configuration serializes whatever it returns, and the MCP
+        // plan forwards that string. Pinning the join means a settings change
+        // reaching the language server also reaches the Agent Panel, which it
+        // did not while only the initialize hook refreshed the cache.
+        let settings = zed::serde_json::json!({
+            "mcp": {"tools": {"shopware_hover": false}},
+            "features": {"hover": true},
+        });
+
+        let configuration = normalized_configuration(&settings, None);
+        let cached = zed::serde_json::to_string(&configuration).unwrap();
+
+        let plan = plan_context_server(
+            ContextServerFacts::default(),
+            CarriedOver {
+                configuration: Some(cached.clone()),
+                ..Default::default()
+            },
+        );
+
+        let forwarded = plan
+            .env
+            .iter()
+            .find(|(key, _)| key == "SHOPWARE_LSP_EDITOR_CONFIGURATION")
+            .map(|(_, value)| value.clone())
+            .expect("the agent must receive the editor configuration");
+
+        // Same bytes, and still the shape the server decodes strictly.
+        assert_eq!(forwarded, cached);
+        let parsed: zed::serde_json::Value = zed::serde_json::from_str(&forwarded).unwrap();
+        assert_eq!(parsed["mcp"]["tools"]["shopware_hover"], false);
+        assert_eq!(parsed, configuration);
     }
 
     #[test]
