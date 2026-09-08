@@ -59,6 +59,8 @@ scripts/contract-check.py --binary /path/to/shopware-lsp
 
 Checks:
 
+- an MCP `tools/call` returns indexed project data, not just a tool list; the
+  fixture ships a PHP class and the call has to find it
 - all 5 published targets resolve and expose `version` + `files.download`
 - the artifact is a zip containing `extension/shopware-lsp`
 - `.config/shopware/lsp.yaml` works as a project marker (it needs `version: 1`)
@@ -138,6 +140,10 @@ server. Re-run `zed: install dev extension` first.
       and Zed shows the install status. Delete the extension work dir to retest.
 - [ ] Agent Panel lists the `shopware-lsp` context server and a Shopware tool
       call returns real results.
+- [ ] The Agent Panel and the editor agree on the binary. `ps | grep shopware-lsp`
+      should show both the language server and the `mcp` process on the same
+      path. They diverged once, with the editor on `PATH` and the agent on the
+      managed download, so the agent was answering from a different build.
 - [x] Snippets load: typing `sw-config-` in an XML buffer offers all six
       `sw-config-*` entries with their descriptions, and accepting one expands
       it. Confirmed 2026-09-07.

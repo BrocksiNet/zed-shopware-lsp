@@ -100,6 +100,17 @@ def fixture_project(workdir):
     """Smallest tree the server accepts, using its documented opt-in marker."""
     root = os.path.join(workdir, "project")
     os.makedirs(os.path.join(root, ".config", "shopware"), exist_ok=True)
+    os.makedirs(os.path.join(root, "src"), exist_ok=True)
+    # Something for a tool call to actually find, so the MCP checks prove the
+    # server answers rather than merely starting.
+    with open(os.path.join(root, "src", "ContractProbe.php"), "w") as handle:
+        handle.write(
+            "<?php declare(strict_types=1);\n"
+            "namespace App;\n\n"
+            "class ContractProbe\n{\n"
+            "    public function probeMethod(): void {}\n"
+            "}\n"
+        )
     with open(os.path.join(root, ".config", "shopware", "lsp.yaml"), "w") as handle:
         # `version` is required; the server rejects the file without it.
         handle.write("version: 1\nfeatures:\n  semanticTokens: true\n")
@@ -297,18 +308,63 @@ def check_mcp(binary, root):
             seen[message["id"]] = message
         if 2 in seen:
             break
-    process.kill()
 
     if not check("`-root ... mcp` starts an MCP server", 1 in seen):
+        process.kill()
         return
     if not check("responds to tools/list", 2 in seen):
+        process.kill()
         return
     tools = seen[2]["result"]["tools"]
-    check(
+    if not check(
         "exposes Shopware tools",
         len(tools) > 0 and all(t["name"].startswith("shopware_") for t in tools),
         f"{len(tools)} tools",
+    ):
+        process.kill()
+        return
+
+    # Listing tools only proves the process started. Call one and require a
+    # real answer, which is what an agent actually depends on.
+    send(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "shopware_workspace_symbols",
+                "arguments": {"query": "ContractProbe"},
+            },
+        }
     )
+    answer = None
+    for _ in range(80):
+        line = process.stdout.readline()
+        if not line:
+            break
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if message.get("id") == 3:
+            answer = message
+            break
+
+    if not check("tools/call returns a result", bool(answer and "result" in answer)):
+        process.kill()
+        return
+    payload = "".join(
+        part.get("text", "") for part in answer["result"].get("content", [])
+    )
+    check(
+        "the answer is indexed project data",
+        "ContractProbe" in payload,
+        "an agent gets real symbols, not an empty envelope",
+    )
+    process.kill()
 
 
 def main():
