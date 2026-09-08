@@ -504,6 +504,18 @@ when installed and falls back to a numbered prompt.
 | `locate-service` | Find where a service id or class is defined | verified |
 | `template-usages` | Find the templates that extend or include this one | verified |
 | `run` | Passthrough to the resolved server binary | verified |
+| `config` | Show the effective configuration and where it comes from | verified |
+| `config-open` | Open the project configuration, creating a valid stub | verified |
+| `reindex` | Rebuild the workspace index from scratch | verified |
+
+`config-open` writes a stub containing `version: 1`, because the server
+rejects the file outright without it, and points `$schema` at the server's own
+schema so `yaml-language-server` can validate as you type.
+
+To restart the server after a change, use Zed's own
+`editor: restart language server`. There is no task for it: the extension
+cannot register editor commands, and restarting the process from outside would
+leave Zed's client attached to a dead one.
 
 The navigation actions open the chosen result in Zed through its CLI, which
 accepts `path:line:column`. That CLI is only on `PATH` after running

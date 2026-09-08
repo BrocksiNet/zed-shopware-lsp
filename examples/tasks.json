@@ -152,6 +152,25 @@
     "reveal": "always"
   },
   {
+    "label": "Shopware: effective configuration",
+    "command": "python3",
+    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "config"],
+    "reveal": "always"
+  },
+  {
+    "label": "Shopware: open project configuration",
+    "command": "python3",
+    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "config-open"],
+    "reveal": "always",
+    "hide": "on_success"
+  },
+  {
+    "label": "Shopware: rebuild the index",
+    "command": "python3",
+    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "reindex"],
+    "reveal": "always"
+  },
+  {
     "label": "Shopware: browse routes",
     "command": "python3",
     "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "routes"],

@@ -140,6 +140,9 @@ OTHER_ACTIONS = {
     "routes": "Browse Symfony routes and open the controller",
     "locate-service": "Find where a service id or class is defined",
     "template-usages": "Find the templates that extend or include this one",
+    "config": "Show the effective configuration and where it comes from",
+    "config-open": "Open the project configuration, creating a valid stub",
+    "reindex": "Rebuild the workspace index from scratch",
 }
 
 
@@ -1065,6 +1068,87 @@ def run_template_usages(args, binary):
     pick_location(sorted(entries), "usage", args)
 
 
+CONFIG_TEMPLATE = """# Shopware LSP project configuration.
+# Schema: https://raw.githubusercontent.com/shopware/shopware-lsp/feat/next-gen/internal/projectconfig/schema.json
+#
+# `version` is mandatory. Without it the server refuses the whole file with
+# "configuration version is required".
+version: 1
+# features:
+#   semanticTokens: true
+# diagnostics:
+#   rules:
+#     php.version: off
+"""
+
+
+def run_config(args, binary):
+    """Show the effective configuration and where it comes from."""
+    result = subprocess.run(
+        [binary, "-root", args.root, "config"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        sys.exit((result.stderr or result.stdout).strip()[:400])
+    try:
+        report = json.loads(result.stdout)
+    except ValueError:
+        sys.exit(f"unexpected config output: {result.stdout[:200]}")
+
+    path = report.get("path") or ""
+    exists = bool(path) and os.path.isfile(path)
+    print(f"config file : {relative(path, args.root) if path else '(none)'}"
+          f"{'' if exists else '  (not created yet; defaults in use)'}")
+    if report.get("scopes"):
+        print(f"scopes      : {json.dumps(report['scopes'])}")
+    print()
+    print(json.dumps(report.get("effective", {}), indent=2, sort_keys=True))
+
+
+def run_config_open(args, binary):
+    """Open the project configuration, creating a valid stub when absent."""
+    result = subprocess.run(
+        [binary, "-root", args.root, "config"], capture_output=True, text=True
+    )
+    path = ""
+    try:
+        path = (json.loads(result.stdout) or {}).get("path") or ""
+    except ValueError:
+        pass
+    if not path:
+        path = os.path.join(args.root, ".config", "shopware", "lsp.yaml")
+
+    if os.path.isfile(path):
+        print(f"exists  {relative(path, args.root)}")
+    elif args.print_only:
+        print(f"would create {relative(path, args.root)}")
+        print(CONFIG_TEMPLATE, end="")
+        return
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(CONFIG_TEMPLATE)
+        print(f"created {relative(path, args.root)}")
+
+    open_location(path, 1, args.root, args.print_only)
+
+
+def run_reindex(args, binary):
+    """Rebuild the workspace index from scratch."""
+    if args.print_only:
+        print("would run: shopware-lsp index -force")
+        return
+    result = subprocess.run(
+        [binary, "-root", args.root, "index", "-force"],
+        capture_output=True,
+        text=True,
+    )
+    print((result.stdout or result.stderr).strip()[:400])
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
 def main():
     # `run` is handled before argparse: the positional `target` and `row` would
     # otherwise swallow the server's own arguments. A passthrough matters
@@ -1136,12 +1220,16 @@ def main():
 
     binary = server_binary()
 
-    if args.action in ("scaffold", "routes", "locate-service"):
-        {
-            "scaffold": run_scaffold,
-            "routes": run_routes,
-            "locate-service": run_locate_service,
-        }[args.action](args, binary)
+    standalone = {
+        "scaffold": run_scaffold,
+        "routes": run_routes,
+        "locate-service": run_locate_service,
+        "config": run_config,
+        "config-open": run_config_open,
+        "reindex": run_reindex,
+    }
+    if args.action in standalone:
+        standalone[args.action](args, binary)
         return
 
     if args.action == "compiler-pass":
