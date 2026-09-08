@@ -1,5 +1,5 @@
 {
-  "_comment": "Which upstream commands have an equivalent here. Every command must appear, with exactly one of 'action' (the sw-action.py action that covers it) or 'gap' (why it does not). scripts/inventory.py fails when upstream adds one that is missing here; scripts/test-sw-action.py fails when an action named here does not exist, or when the README counts disagree.",
+  "_comment": "Which upstream commands have an equivalent here, and which actions stand on their own. Every command carries exactly one of 'gap' or 'action', and an 'action' may add 'partial' when it covers only some of what the upstream command does. Actions with no upstream counterpart belong in 'standalone' rather than being mapped to a loose match. scripts/inventory.py fails when upstream adds a command missing here; scripts/test-sw-action.py fails when an action named here does not exist, when an action is neither mapped nor standalone, or when the README counts disagree.",
   "palette": {
     "shopware.createFile": {
       "action": "scaffold"
@@ -56,7 +56,8 @@
       "action": "twig-block-diff"
     },
     "shopwareLSP.configure": {
-      "action": "config"
+      "action": "config",
+      "partial": "configure is an interactive editor that writes feature toggles and picks a scope; config only prints the effective configuration"
     },
     "shopwareLSP.forceReindex": {
       "action": "reindex"
@@ -138,5 +139,8 @@
     "shopware.twig.showBlockDiff": {
       "action": "twig-block-diff"
     }
+  },
+  "standalone": {
+    "run": "passthrough to the resolved server binary; no upstream counterpart"
   }
 }

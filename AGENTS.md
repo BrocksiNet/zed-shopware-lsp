@@ -210,7 +210,14 @@ registry.
   agree.
 - **Parity numbers are derived, not written.** `inventory/parity.json` holds a
   decision for every palette and client command, and the README's Command
-  parity section restates its counts. `test-sw-action.py` fails when the two
+  parity section restates its counts. A command is `action` only when the
+  action does the whole job; add `partial` with what is missing otherwise, and
+  a partial counts as a gap. An action with no upstream counterpart goes in
+  `standalone`. Mapping one to a loose match to make a number look better is
+  the failure this shape exists to prevent: `config` prints the effective
+  configuration, while VS Code's `configure` is an interactive editor that
+  writes feature toggles, and counting them equal overstated the palette by
+  one. `test-sw-action.py` fails when the two
   disagree, `inventory.py` fails when upstream adds a command the map ignores.
   Editing a count by hand is the failure mode this replaced: the table
   compared the client-command total against the palette's coverage for

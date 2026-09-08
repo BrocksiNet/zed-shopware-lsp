@@ -304,8 +304,8 @@ context server pointed straight at the binary.
 | MCP server | yes, as a context server |
 | Snippets (1 PHP, 6 config XML) | yes, ported and confirmed working |
 | `yamlValidation` for `lsp.yaml` | via `examples/settings.json`, pointing at the server's own schema |
-| 22 palette commands | no palette; 11 equivalents as tasks. See [Command parity](#command-parity) |
-| 23 client commands behind code actions | 12 equivalents as tasks; the menu entries are filtered out |
+| 22 palette commands | no palette; 10 full equivalents as tasks. See [Command parity](#command-parity) |
+| 23 client commands behind code actions | 12 full equivalents as tasks; the menu entries are filtered out |
 | Explorer and editor context menus | no, Zed has no extension menu API |
 | Code lenses | yes, text renders; clicking does nothing. See [Code lenses](#code-lenses) |
 | Entity designer, Twig block diff viewer | no, needs custom UI |
@@ -317,13 +317,25 @@ Two lists, counted separately because they are easy to conflate. The
 The **client commands** are the ones the server asks a client to run, almost
 all attached to code actions rather than to the palette.
 
-11 of 22 palette commands and 12 of 23 client commands have task
-equivalents. 3 actions serve both lists, which is how those add up to the
-20 named actions in the action table below, plus the `run` passthrough.
-The examples expose them through 22 tasks; tasks and upstream commands are
-not a one-to-one mapping.
+10 of 22 palette commands and 12 of 23 client commands have a full task
+equivalent. 3 actions serve both lists, so those are 19 distinct
+actions, and with the partial and standalone ones below that is the
+21 in the action table above. The examples expose them through 22 tasks;
+tasks and upstream commands are not a one-to-one mapping.
 
-Not covered, and why:
+Partial, and counted as a gap rather than as parity:
+
+| Upstream | Action | What is missing |
+|---|---|---|
+| `configure` | `config` | configure is an interactive editor that writes feature toggles and picks a scope; config only prints the effective configuration |
+
+Standalone, with no upstream counterpart:
+
+| Action | What it is |
+|---|---|
+| `run` | passthrough to the resolved server binary; no upstream counterpart |
+
+Not covered at all, and why:
 
 | Missing | Reason |
 |---|---|
@@ -340,9 +352,9 @@ Not covered, and why:
 | `openReferences` | declared in supportedCommands so the lenses render; Zed cannot execute it |
 
 The counts come from `inventory/parity.json`, which records a decision for
-every upstream command. `scripts/test-sw-action.py` fails when this section
-disagrees with it, and `scripts/inventory.py` fails when upstream adds a
-command the map does not mention.
+every upstream command and for every action. `scripts/test-sw-action.py`
+fails when this section disagrees with it, and `scripts/inventory.py` fails
+when upstream adds a command the map does not mention.
 
 ### Code lenses
 

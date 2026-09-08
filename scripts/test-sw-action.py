@@ -160,9 +160,8 @@ class Parity(unittest.TestCase):
 
     def setUp(self):
         self.parity = json.loads((ROOT / "inventory" / "parity.json").read_text())
-        self.groups = {
-            key: self.parity[key] for key in ("palette", "clientCommands")
-        }
+        self.groups = {key: self.parity[key] for key in ("palette", "clientCommands")}
+        self.standalone = self.parity["standalone"]
         self.readme = (ROOT / "README.md").read_text()
         # Prose wraps, so compare against a single-spaced form.
         self.prose = re.sub(r"\s+", " ", self.readme)
@@ -173,24 +172,50 @@ class Parity(unittest.TestCase):
                 yield group, command, entry
 
     def counts(self, group):
+        """Full equivalents only. A partial one is not parity."""
         commands = self.groups[group]
-        return sum(1 for e in commands.values() if "action" in e), len(commands)
+        full = sum(1 for e in commands.values() if "action" in e and "partial" not in e)
+        return full, len(commands)
 
-    def test_every_entry_is_covered_or_explained(self):
+    def full_actions(self):
+        return {
+            e["action"]
+            for _, _, e in self.entries()
+            if "action" in e and "partial" not in e
+        }
+
+    def test_every_entry_is_covered_partial_or_explained(self):
+        allowed = [{"action"}, {"action", "partial"}, {"gap"}]
         for group, command, entry in self.entries():
-            keys = set(entry)
-            self.assertIn(keys, [{"action"}, {"gap"}], f"{group}: {command} -> {entry}")
+            self.assertIn(set(entry), allowed, f"{group}: {command} -> {entry}")
 
     def test_every_named_action_exists(self):
         known = set(sw.action_names())
         for group, command, entry in self.entries():
             if "action" in entry:
                 self.assertIn(entry["action"], known, f"{group}: {command}")
+        for action in self.standalone:
+            self.assertIn(action, known, f"standalone: {action}")
 
-    def test_no_gap_reason_is_empty(self):
+    def test_every_action_is_mapped_or_standalone(self):
+        # An action does not have to correspond to an upstream command. It does
+        # have to be accounted for, so that nothing is quietly unlisted and
+        # nothing gets mapped to a loose match just to appear in the count.
+        mapped = {e["action"] for _, _, e in self.entries() if "action" in e}
+        for action in sw.action_names():
+            self.assertTrue(
+                action in mapped or action in self.standalone,
+                f"{action} is neither mapped to an upstream command nor listed "
+                "as standalone in parity.json",
+            )
+
+    def test_no_reason_is_empty(self):
         for group, command, entry in self.entries():
-            if "gap" in entry:
-                self.assertTrue(entry["gap"].strip(), f"{group}: {command}")
+            for key in ("gap", "partial"):
+                if key in entry:
+                    self.assertTrue(entry[key].strip(), f"{group}: {command}")
+        for action, reason in self.standalone.items():
+            self.assertTrue(reason.strip(), action)
 
     def test_readme_states_the_counts_the_map_implies(self):
         # The stale-number bug this whole gate exists for.
@@ -198,8 +223,8 @@ class Parity(unittest.TestCase):
         client_covered, client_total = self.counts("clientCommands")
         sentence = (
             f"{palette_covered} of {palette_total} palette commands and "
-            f"{client_covered} of {client_total} client commands have task "
-            "equivalents"
+            f"{client_covered} of {client_total} client commands have a full "
+            "task equivalent"
         )
         self.assertIn(sentence, self.prose)
 
@@ -208,33 +233,73 @@ class Parity(unittest.TestCase):
         client_covered, client_total = self.counts("clientCommands")
         self.assertIn(
             f"| {palette_total} palette commands | no palette; "
-            f"{palette_covered} equivalents as tasks",
+            f"{palette_covered} full equivalents as tasks",
             self.readme,
         )
         self.assertIn(
             f"| {client_total} client commands behind code actions | "
-            f"{client_covered} equivalents as tasks",
+            f"{client_covered} full equivalents as tasks",
             self.readme,
         )
 
-    def test_the_gap_table_lists_every_gap(self):
-        # A gap recorded but not documented is invisible to a reader.
+    def test_the_tables_list_every_gap_and_every_partial(self):
+        # Recorded but undocumented is invisible to a reader.
         for group, command, entry in self.entries():
-            if "gap" not in entry:
+            if "gap" not in entry and "partial" not in entry:
                 continue
             short = command.rsplit(".", 1)[-1]
             self.assertIn(f"`{short}`", self.readme, f"{group}: {command}")
 
+    def action_table(self):
+        """Rows of the action table, which is not the only table of actions."""
+        lines = self.readme.splitlines()
+        header = lines.index("| Action | What it does | Status |")
+        rows = []
+        for line in lines[header + 2 :]:
+            if not line.startswith("|"):
+                break
+            rows.append(line.split("|")[1].strip().strip("`"))
+        return rows
+
+    def test_every_mapped_action_is_reachable_from_a_task(self):
+        # An action nobody can run is not an equivalent of anything.
+        tasks = {task["args"][1] for task in load_jsonc("examples/tasks.json")}
+        for group, command, entry in self.entries():
+            if "action" in entry:
+                self.assertIn(entry["action"], tasks, f"{group}: {command}")
+
+    def test_a_mapped_action_is_not_also_standalone(self):
+        for group, command, entry in self.entries():
+            if "action" in entry:
+                self.assertNotIn(entry["action"], self.standalone, f"{group}: {command}")
+
+    def test_the_readme_carries_each_reason_verbatim(self):
+        # The short command name alone would let the reason drift silently.
+        for group, command, entry in self.entries():
+            for key in ("gap", "partial"):
+                if key in entry:
+                    self.assertIn(entry[key], self.readme, f"{group}: {command}")
+        for action, reason in self.standalone.items():
+            self.assertIn(reason, self.readme, action)
+
+    def test_the_action_table_lists_exactly_the_scripts_actions(self):
+        self.assertCountEqual(self.action_table(), sw.action_names())
+
+    def test_the_readme_states_how_many_tasks_expose_them(self):
+        tasks = load_jsonc("examples/tasks.json")
+        self.assertIn(f"{len(tasks)} tasks", self.prose)
+
     def test_distinct_actions_reconcile(self):
         # Three actions serve both lists; the README explains the arithmetic,
         # so it has to hold.
-        actions = {
-            entry["action"] for _, _, entry in self.entries() if "action" in entry
-        }
         palette_covered, _ = self.counts("palette")
         client_covered, _ = self.counts("clientCommands")
-        shared = palette_covered + client_covered - len(actions)
+        shared = palette_covered + client_covered - len(self.full_actions())
         self.assertIn(f"{shared} actions serve both lists", self.prose)
+        self.assertIn(
+            f"{len(self.full_actions())} distinct actions", self.prose
+        )
+        self.assertIn(f"{len(sw.action_names())} in the action table", self.prose)
 
 
 class Picker(unittest.TestCase):
@@ -456,49 +521,6 @@ class InsertUuid(unittest.TestCase):
     def test_values_do_not_repeat(self):
         seen = {self.insert("\n", row=1)[0].strip() for _ in range(10)}
         self.assertEqual(len(seen), 10)
-
-
-class ParityDocumentation(unittest.TestCase):
-    """Keep upstream decisions, runnable tasks and public claims in agreement."""
-
-    def setUp(self):
-        self.parity = json.loads((ROOT / "inventory/parity.json").read_text())
-        self.readme = (ROOT / "README.md").read_text()
-        self.tasks = load_jsonc("examples/tasks.json")
-
-    def test_every_command_has_one_valid_decision(self):
-        known = set(sw.action_names()) - {"run"}
-        task_actions = {task["args"][1] for task in self.tasks}
-        for group in ("palette", "clientCommands"):
-            for command, decision in self.parity[group].items():
-                self.assertIn(set(decision), ({"action"}, {"gap"}), command)
-                if "action" in decision:
-                    self.assertIn(decision["action"], known, command)
-                    self.assertIn(decision["action"], task_actions, command)
-                else:
-                    self.assertTrue(decision["gap"].strip(), command)
-                    self.assertIn("`" + command.rsplit(".", 1)[-1] + "`", self.readme, command)
-                    self.assertIn(decision["gap"], self.readme, command)
-
-    def test_readme_counts_match_the_parity_map(self):
-        groups = [self.parity[key] for key in ("palette", "clientCommands")]
-        covered = [{v["action"] for v in group.values() if "action" in v} for group in groups]
-        counts = [sum("action" in v for v in group.values()) for group in groups]
-        self.assertIn(f"{counts[0]} of {len(groups[0])} palette commands and {counts[1]} of {len(groups[1])} client commands", self.readme)
-        self.assertIn(f"{len(covered[0] & covered[1])} actions serve both lists", self.readme)
-        for group, count, title in zip(groups, counts, ("palette commands", "client commands behind code actions")):
-            row = next(line for line in self.readme.splitlines() if line.startswith(f"| {len(group)} {title} |"))
-            self.assertIn(f"{count} equivalents as tasks", row)
-        self.assertIn(f"{len(sw.action_names()) - 1} named actions", self.readme)
-        self.assertIn(f"{len(self.tasks)} tasks", self.readme)
-
-    def test_documented_actions_match_the_script(self):
-        rows = re.findall(r"^\| `([^`]+)` \|", self.readme, re.M)
-        documented = [name for name in rows if name in sw.action_names()]
-        self.assertCountEqual(documented, sw.action_names())
-        mapped = {entry["action"] for group in ("palette", "clientCommands")
-                  for entry in self.parity[group].values() if "action" in entry}
-        self.assertEqual(mapped, set(sw.action_names()) - {"run"})
 
 
 class Examples(unittest.TestCase):
