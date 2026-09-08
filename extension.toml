@@ -23,6 +23,10 @@ languages = [
   "TSX",
   "SCSS",
   "Vue.js",
+  # Env-var hover works in Dockerfiles: the server indexes ENV declarations
+  # alongside .env files. Needs Zed's separate `dockerfile` extension, the same
+  # way Twig does.
+  "Dockerfile",
 ]
 
 [language_servers.shopware-lsp.language_ids]
@@ -36,5 +40,6 @@ languages = [
 "TSX" = "typescriptreact"
 "SCSS" = "scss"
 "Vue.js" = "vue"
+"Dockerfile" = "dockerfile"
 
 [context_servers.shopware-lsp]
