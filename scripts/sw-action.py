@@ -137,6 +137,9 @@ OTHER_ACTIONS = {
     "compiler-pass": "Create a compiler pass and register it in a bundle",
     "translation-extract": "Extract selected Twig text into a translation",
     "run": "Run the resolved server binary with the given arguments",
+    "routes": "Browse Symfony routes and open the controller",
+    "locate-service": "Find where a service id or class is defined",
+    "template-usages": "Find the templates that extend or include this one",
 }
 
 
@@ -926,6 +929,142 @@ def run_translation_extract(args, binary):
     apply_workspace_edit(edit, args.print_only, args.root)
 
 
+def zed_cli():
+    """The Zed CLI, which opens a file at `path:line:column`.
+
+    `zed` is only on PATH if the user ran `cli: install`, so the app bundle is
+    checked too. Returning None is not fatal; the caller prints the location
+    instead of opening it.
+    """
+    found = shutil.which("zed")
+    if found:
+        return found
+    for candidate in (
+        "/Applications/Zed.app/Contents/MacOS/cli",
+        os.path.expanduser("~/Applications/Zed.app/Contents/MacOS/cli"),
+        "/usr/local/bin/zed",
+        os.path.expanduser("~/.local/bin/zed"),
+    ):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def open_location(path, line, root, print_only):
+    """Open a source location in Zed, or print it when the CLI is missing."""
+    target = f"{relative(path, root)}:{max(line, 1)}"
+    cli = zed_cli()
+    if print_only or not cli:
+        print(f"  {target}")
+        if not cli and not print_only:
+            print("  (no Zed CLI found; run `cli: install` from Zed to enable opening)")
+        return
+    subprocess.run([cli, f"{path}:{max(line, 1)}"], check=False)
+    print(f"  opened {target}")
+
+
+def pick_location(entries, prompt, args):
+    """Show `entries` as `(label, path, line)` and open the chosen one."""
+    if not entries:
+        sys.exit(f"no {prompt} found")
+    labels = [label for label, _, _ in entries]
+    chosen = choose(labels, prompt, False)[0]
+    _, path, line = entries[labels.index(chosen)]
+    if not path:
+        print(f"  {chosen}")
+        print("  (no source location reported for this entry)")
+        return
+    open_location(path, line, args.root, args.print_only)
+
+
+def run_routes(args, binary):
+    """Browse Symfony routes and jump to the controller."""
+    rows = execute(binary, args.root, "shopware/symfony/analytics/routes", {})
+    entries = []
+    for row in rows if isinstance(rows, list) else []:
+        # sourceUri is the #[Route] attribute; controllerUri the method body.
+        uri = row.get("sourceUri") or row.get("controllerUri") or ""
+        line = row.get("sourceLine") or row.get("controllerLine") or 1
+        entries.append(
+            (
+                "{:<52} {}".format(row.get("name", "?"), row.get("path", "")),
+                uri_to_path(uri) if uri else "",
+                line,
+            )
+        )
+    pick_location(sorted(entries), "route", args)
+
+
+def run_locate_service(args, binary):
+    """Find where a service id or class is defined."""
+    identifier = (
+        args.service
+        or (args.target if args.target else None)
+        or os.environ.get("ZED_SELECTED_TEXT")
+        or input("service id or class: ")
+    ).strip()
+    if not identifier:
+        sys.exit("a service identifier is required")
+
+    rows = execute(
+        binary,
+        args.root,
+        "shopware/symfony/analytics/services/locate",
+        {"identifier": identifier},
+    )
+    entries = []
+    for row in rows if isinstance(rows, list) else []:
+        class_uri = row.get("classFileUri") or ""
+        if class_uri:
+            entries.append(
+                (
+                    "class    {}".format(row.get("className", identifier)),
+                    uri_to_path(class_uri),
+                    row.get("classLine") or 1,
+                )
+            )
+        for definition in row.get("definitions") or []:
+            uri = definition.get("fileUri") or ""
+            entries.append(
+                (
+                    "def      {}".format(definition.get("source", "")),
+                    uri_to_path(uri) if uri else "",
+                    definition.get("sourceLine") or 1,
+                )
+            )
+    pick_location(entries, f"location for {identifier}", args)
+
+
+def run_template_usages(args, binary):
+    """Find the templates that extend or include this one."""
+    path = os.path.abspath(args.target)
+    if not os.path.isfile(path):
+        sys.exit(f"not a file: {path}")
+
+    rows = execute(
+        binary,
+        args.root,
+        "shopware/symfony/analytics/twig/templateUsages",
+        {"fileGlob": relative(path, args.root)},
+    )
+    entries = []
+    for row in rows if isinstance(rows, list) else []:
+        for kind in ("extends", "includes", "embeds", "controllers"):
+            for usage in row.get(kind) or []:
+                uri = usage.get("fileUri") or ""
+                label = usage.get("controller") or relative(
+                    uri_to_path(uri) if uri else "?", args.root
+                )
+                entries.append(
+                    (
+                        "{:<9} {}".format(kind, label),
+                        uri_to_path(uri) if uri else "",
+                        usage.get("line") or 1,
+                    )
+                )
+    pick_location(sorted(entries), "usage", args)
+
+
 def main():
     # `run` is handled before argparse: the positional `target` and `row` would
     # otherwise swallow the server's own arguments. A passthrough matters
@@ -960,6 +1099,7 @@ def main():
     )
     parser.add_argument("--text", help="text to extract, defaults to $ZED_SELECTED_TEXT")
     parser.add_argument("--domain", help="translation domain, skips the picker")
+    parser.add_argument("--service", help="service id or class, skips the prompt")
     parser.add_argument("--extension", help="extension name, skips the picker")
     parser.add_argument(
         "--class",
@@ -996,8 +1136,12 @@ def main():
 
     binary = server_binary()
 
-    if args.action == "scaffold":
-        run_scaffold(args, binary)
+    if args.action in ("scaffold", "routes", "locate-service"):
+        {
+            "scaffold": run_scaffold,
+            "routes": run_routes,
+            "locate-service": run_locate_service,
+        }[args.action](args, binary)
         return
 
     if args.action == "compiler-pass":
@@ -1012,6 +1156,7 @@ def main():
         "twig-extend-block": run_twig_extend_block,
         "admin-twig-override": run_admin_twig_override,
         "twig-block-diff": run_twig_block_diff,
+        "template-usages": run_template_usages,
         "snippet": lambda a, b: run_snippet_create(a, b, "storefront"),
         "snippet-admin": lambda a, b: run_snippet_create(a, b, "admin"),
         "service-definition": run_service_definition,

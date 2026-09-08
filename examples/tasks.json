@@ -152,6 +152,37 @@
     "reveal": "always"
   },
   {
+    "label": "Shopware: browse routes",
+    "command": "python3",
+    "args": ["$ZED_WORKTREE_ROOT/.zed/sw-action.py", "routes"],
+    "reveal": "always",
+    "hide": "on_success"
+  },
+  {
+    // Offered only with a selection, which is the service id to look up.
+    "label": "Shopware: locate selected service",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "locate-service",
+      "--service",
+      "$ZED_SELECTED_TEXT"
+    ],
+    "reveal": "always",
+    "hide": "on_success"
+  },
+  {
+    "label": "Shopware: who extends this template",
+    "command": "python3",
+    "args": [
+      "$ZED_WORKTREE_ROOT/.zed/sw-action.py",
+      "template-usages",
+      "$ZED_FILE"
+    ],
+    "reveal": "always",
+    "hide": "on_success"
+  },
+  {
     // Through sw-action.py rather than calling shopware-lsp directly: after the
     // documented install the only copy is inside Zed's extension directory and
     // is not on PATH, so a direct call fails.

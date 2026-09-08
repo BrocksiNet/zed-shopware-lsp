@@ -41,6 +41,15 @@
       "alt-shift-d": [
         "task::Spawn",
         { "task_name": "Shopware: diagnostics for this file" }
+      ],
+      "alt-shift-r": ["task::Spawn", { "task_name": "Shopware: browse routes" }],
+      "alt-shift-l": [
+        "task::Spawn",
+        { "task_name": "Shopware: locate selected service" }
+      ],
+      "alt-shift-u": [
+        "task::Spawn",
+        { "task_name": "Shopware: who extends this template" }
       ]
     }
   }
