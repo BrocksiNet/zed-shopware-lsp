@@ -32,6 +32,11 @@ struct ShopwareLspExtension {
     /// `Worktree`. `Project` exposes worktree IDs but no paths, so this is the
     /// only way the MCP server can learn the project root.
     cached_worktree_root: Option<String>,
+    /// The normalized editor configuration, remembered for the same reason:
+    /// the MCP hook has no `Worktree` and so cannot read Zed settings itself.
+    cached_configuration: Option<String>,
+    /// `GOMEMLIMIT` value, remembered for the MCP process for the same reason.
+    cached_memory_limit: Option<String>,
 }
 
 /// Where the binary lives inside the downloaded `.vsix`, which is a plain zip.
@@ -180,35 +185,56 @@ fn project_configuration(shopware: &zed::serde_json::Value) -> zed::serde_json::
     zed::serde_json::Value::Object(config)
 }
 
-/// `initializationOptions` fields the server reads outside `configuration`.
+/// The one normalized configuration, in the server's `Partial` shape.
 ///
-/// `phpExtensions`, `disabledPhpExtensions` and `shopwareTargetVersion` are
-/// top-level names on the server side, folded into the project config by
-/// `editorConfiguration` during initialize.
-fn initialization_extras(shopware: &zed::serde_json::Value) -> zed::serde_json::Value {
-    let mut extras = zed::serde_json::Map::new();
+/// Every surface has to agree. `didChangeConfiguration` *replaces* the editor
+/// overlay wholesale, so a hook that builds a smaller object than initialize
+/// did silently drops settings the user still has set. `raw_override` is the
+/// user's own `initialization_options.configuration`, merged last so it wins.
+fn normalized_configuration(
+    shopware: &zed::serde_json::Value,
+    raw_override: Option<&zed::serde_json::Value>,
+) -> zed::serde_json::Value {
+    let mut config = project_configuration(shopware);
 
+    // php.* and shopware.* also exist as named initializationOptions fields,
+    // but only initialize reads those, and they belong to the same Partial. Put
+    // them in the object every surface shares so an update cannot drop them.
+    let mut php = zed::serde_json::Map::new();
     for (from, to) in [
-        ("phpExtensions", "phpExtensions"),
-        ("disabledPhpExtensions", "disabledPhpExtensions"),
-        ("shopwareTargetVersion", "shopwareTargetVersion"),
+        ("phpExtensions", "extensions"),
+        ("disabledPhpExtensions", "disabledExtensions"),
     ] {
-        match shopware.get(from) {
-            Some(zed::serde_json::Value::String(value)) if value.is_empty() => {}
-            Some(zed::serde_json::Value::Array(values)) if values.is_empty() => {}
-            Some(value) => {
-                extras.insert(to.to_string(), value.clone());
+        if let Some(zed::serde_json::Value::Array(values)) = shopware.get(from) {
+            if !values.is_empty() {
+                php.insert(
+                    to.to_string(),
+                    zed::serde_json::Value::Array(values.clone()),
+                );
             }
-            None => {}
+        }
+    }
+    if !php.is_empty() {
+        merge_json(
+            &mut config,
+            zed::serde_json::json!({ "php": zed::serde_json::Value::Object(php) }),
+        );
+    }
+
+    if let Some(zed::serde_json::Value::String(version)) = shopware.get("shopwareTargetVersion") {
+        if !version.is_empty() {
+            merge_json(
+                &mut config,
+                zed::serde_json::json!({ "shopware": { "targetVersion": version } }),
+            );
         }
     }
 
-    let configuration = project_configuration(shopware);
-    if configuration.as_object().is_some_and(|map| !map.is_empty()) {
-        extras.insert("configuration".to_string(), configuration);
+    if let Some(extra) = raw_override {
+        merge_json(&mut config, extra.clone());
     }
 
-    zed::serde_json::Value::Object(extras)
+    config
 }
 
 /// `GOMEMLIMIT` for `shopwareLSP.memoryLimitMiB`.
@@ -442,6 +468,8 @@ impl zed::Extension for ShopwareLspExtension {
             cached_binary_path: None,
             cached_download: None,
             cached_worktree_root: None,
+            cached_configuration: None,
+            cached_memory_limit: None,
         }
     }
 
@@ -462,7 +490,8 @@ impl zed::Extension for ShopwareLspExtension {
         // memoryLimitMiB has no server-side setting; the server reads
         // GOMEMLIMIT, so the client has to apply it when spawning.
         if let Some(limit) = memory_limit_env(&Self::shopware_settings(worktree)) {
-            env.push(("GOMEMLIMIT".to_string(), limit));
+            env.push(("GOMEMLIMIT".to_string(), limit.clone()));
+            self.cached_memory_limit = Some(limit);
         }
 
         Ok(zed::Command {
@@ -475,16 +504,23 @@ impl zed::Extension for ShopwareLspExtension {
 
     /// Answer `didChangeConfiguration` with the shape the server decodes.
     ///
-    /// It reads `{"settings": Partial}`, the `.config/shopware/lsp.yaml`
-    /// shape, not the editor's `shopwareLSP` wrapper.
+    /// It reads `{"settings": Partial}`, and it *replaces* the editor overlay,
+    /// so this has to be the same object initialize sent. Building a smaller
+    /// one here drops PHP extensions, the target version and any raw
+    /// `configuration` override the moment a setting changes.
     fn language_server_workspace_configuration(
         &mut self,
         _language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<Option<zed::serde_json::Value>> {
-        Ok(Some(project_configuration(&Self::shopware_settings(
-            worktree,
-        ))))
+        let user = LspSettings::for_worktree(SERVER_NAME, worktree)
+            .ok()
+            .and_then(|settings| settings.initialization_options);
+
+        Ok(Some(normalized_configuration(
+            &Self::shopware_settings(worktree),
+            user.as_ref().and_then(|value| value.get("configuration")),
+        )))
     }
 
     fn language_server_initialization_options(
@@ -492,18 +528,28 @@ impl zed::Extension for ShopwareLspExtension {
         _language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<Option<zed::serde_json::Value>> {
-        let mut options = default_initialization_options();
-        merge_json(
-            &mut options,
-            initialization_extras(&Self::shopware_settings(worktree)),
-        );
-
-        // A raw `initialization_options` block still wins, so anything the
-        // translation does not cover can be set by hand.
-        if let Some(user) = LspSettings::for_worktree(SERVER_NAME, worktree)
+        let user = LspSettings::for_worktree(SERVER_NAME, worktree)
             .ok()
-            .and_then(|settings| settings.initialization_options)
-        {
+            .and_then(|settings| settings.initialization_options);
+
+        let configuration = normalized_configuration(
+            &Self::shopware_settings(worktree),
+            user.as_ref().and_then(|value| value.get("configuration")),
+        );
+        // Remembered so `didChangeConfiguration` and the MCP process send the
+        // same object; the server replaces the overlay rather than merging it.
+        self.cached_configuration = zed::serde_json::to_string(&configuration).ok();
+
+        let mut options = default_initialization_options();
+        if configuration.as_object().is_some_and(|map| !map.is_empty()) {
+            merge_json(
+                &mut options,
+                zed::serde_json::json!({ "configuration": configuration }),
+            );
+        }
+
+        // A raw block still wins, for anything the translation does not cover.
+        if let Some(user) = user {
             merge_json(&mut options, user);
         }
         Ok(Some(options))
@@ -524,10 +570,31 @@ impl zed::Extension for ShopwareLspExtension {
 
         let command = settings.as_ref().and_then(|s| s.command.as_ref());
 
-        let env: Vec<(String, String)> = command
-            .and_then(|c| c.env.clone())
-            .map(|env| env.into_iter().collect())
-            .unwrap_or_default();
+        // The MCP process is spawned separately and reads neither Zed settings
+        // nor the language server's initialize payload, so editor
+        // configuration reaches it only through the environment. Upstream uses
+        // the same two variables.
+        let mut env: Vec<(String, String)> = Vec::new();
+        if let Some(limit) = self.cached_memory_limit.clone() {
+            env.push(("GOMEMLIMIT".to_string(), limit));
+        }
+        if let Some(configuration) = self
+            .cached_configuration
+            .clone()
+            .filter(|value| value != "{}")
+        {
+            env.push((
+                "SHOPWARE_LSP_EDITOR_CONFIGURATION".to_string(),
+                configuration,
+            ));
+        }
+        // An explicit env block wins over both.
+        env.extend(
+            command
+                .and_then(|c| c.env.clone())
+                .map(|values| values.into_iter().collect::<Vec<_>>())
+                .unwrap_or_default(),
+        );
 
         if let Some((path, args)) = command_override(
             command.and_then(|c| c.path.clone()),
@@ -783,12 +850,11 @@ mod tests {
             "serverPath": "/somewhere/shopware-lsp",
         });
 
-        let extras = initialization_extras(&settings);
-        assert_eq!(extras["phpExtensions"][0], "redis");
-        assert_eq!(extras["disabledPhpExtensions"][0], "xdebug");
-        assert_eq!(extras["shopwareTargetVersion"], "6.8");
+        let config = normalized_configuration(&settings, None);
 
-        let config = &extras["configuration"];
+        assert_eq!(config["php"]["extensions"][0], "redis");
+        assert_eq!(config["php"]["disabledExtensions"][0], "xdebug");
+        assert_eq!(config["shopware"]["targetVersion"], "6.8");
         assert_eq!(config["features"]["semanticTokens"], false);
         assert_eq!(config["domains"]["twig"], true);
         assert_eq!(config["indexing"]["maxFileSizeMiB"], 4);
@@ -797,36 +863,73 @@ mod tests {
         assert_eq!(config["mcp"]["tools"]["shopware_hover"], false);
 
         // mcp.enabled decides whether Zed registers a context server, so the
-        // server must never see it; the rest are client concerns too.
+        // server must never see it; the rest are client concerns too. The
+        // server decodes this with DisallowUnknownFields, so a stray key is
+        // not merely ignored, it fails the whole payload.
         assert!(config["mcp"].get("enabled").is_none());
         for key in [
             "activationMode",
             "memoryLimitMiB",
             "phpExecutable",
             "serverPath",
+            "shopwareLSP",
+            "phpExtensions",
         ] {
             assert!(config.get(key).is_none(), "{key} leaked into configuration");
-            assert!(
-                extras.get(key).is_none(),
-                "{key} leaked into initialization"
-            );
         }
-        // And nothing keeps the wrapper the server does not know.
-        assert!(extras.get("shopwareLSP").is_none());
+    }
+
+    #[test]
+    fn the_partial_builder_is_not_interchangeable_with_the_section_builder() {
+        // didChangeConfiguration replaces the editor overlay rather than
+        // merging it, so both hooks must build the *same* object. They are two
+        // call sites in the untestable Extension impl, so what is pinned here
+        // is the thing that makes swapping them wrong: project_configuration
+        // alone loses php, shopware and any raw override.
+        let settings = zed::serde_json::json!({
+            "phpExtensions": ["redis"],
+            "shopwareTargetVersion": "6.8",
+            "features": {"hover": true},
+        });
+        let raw = zed::serde_json::json!({"check": {"failOn": "error"}});
+
+        let full = normalized_configuration(&settings, Some(&raw));
+        let sections_only = project_configuration(&settings);
+        assert_ne!(
+            full, sections_only,
+            "if these ever match, the hooks could use either and the \
+             difference this test guards has gone"
+        );
+
+        assert_eq!(full["php"]["extensions"][0], "redis");
+        assert_eq!(full["shopware"]["targetVersion"], "6.8");
+        assert_eq!(full["check"]["failOn"], "error");
+        assert!(sections_only.get("php").is_none());
+        assert!(sections_only.get("shopware").is_none());
+        assert!(sections_only.get("check").is_none());
+
+        // The shared section survives either way, so the loss is silent.
+        assert_eq!(full["features"], sections_only["features"]);
     }
 
     #[test]
     fn empty_settings_produce_no_configuration_noise() {
         let empty = zed::serde_json::json!({});
         assert_eq!(project_configuration(&empty), zed::serde_json::json!({}));
-        assert_eq!(initialization_extras(&empty), zed::serde_json::json!({}));
+        assert_eq!(
+            normalized_configuration(&empty, None),
+            zed::serde_json::json!({})
+        );
 
         // Blank values must not be forwarded as real settings.
         let blank = zed::serde_json::json!({
             "shopwareTargetVersion": "",
             "phpExtensions": [],
         });
-        assert_eq!(initialization_extras(&blank), zed::serde_json::json!({}));
+        assert_eq!(
+            normalized_configuration(&blank, None),
+            zed::serde_json::json!({})
+        );
     }
 
     #[test]

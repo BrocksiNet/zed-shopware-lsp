@@ -130,6 +130,14 @@ Requires `rustup target add wasm32-wasip2`. Load into Zed with
 There is no way to distribute a prebuilt extension outside Zed's public
 registry.
 
+- **Editor configuration has three destinations and one shape.** `initialize`,
+  `didChangeConfiguration` and the MCP process (`SHOPWARE_LSP_EDITOR_CONFIGURATION`)
+  all take the `.config/shopware/lsp.yaml` `Partial`. The server *replaces* the
+  overlay on update, so all three must send the object `normalized_configuration`
+  builds; sending a subset from one of them silently unsets the rest. The MCP
+  decoder uses `DisallowUnknownFields`, so a stray editor-only key fails the
+  whole payload rather than being ignored.
+
 ## Upstream facts that are easy to get wrong
 
 - **The 0.3.x server source lives on the `feat/next-gen` branch** of

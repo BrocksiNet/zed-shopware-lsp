@@ -195,11 +195,16 @@ configuration namespace, so they are translated rather than forwarded:
 |---|---|
 | `phpExtensions`, `disabledPhpExtensions`, `shopwareTargetVersion` | named `initializationOptions` fields |
 | `features`, `domains`, `indexing.*`, `diagnostics.*`, `mcp.tools` | `initializationOptions.configuration`, the `lsp.yaml` shape |
-| `memoryLimitMiB` | `GOMEMLIMIT` on the server process |
+| `memoryLimitMiB` | `GOMEMLIMIT` on both the language server and the MCP process |
 | `activationMode` | **not supported.** VS Code decides whether to start the server at all; Zed's extension API cannot. The server refuses to start outside a Shopware or Symfony project anyway |
 | `serverPath` | use `lsp.shopware-lsp.binary.path` |
 | `phpExecutable` | **not supported.** Only used by VS Code's Symfony console code lenses, which Zed cannot run |
 | `mcp.enabled` | drop the `context_servers.shopware-lsp` entry instead |
+
+The same object goes to `initialize`, to `didChangeConfiguration` and to the
+MCP process as `SHOPWARE_LSP_EDITOR_CONFIGURATION`. That matters because the
+server *replaces* the editor overlay on an update rather than merging it, so a
+smaller object sent later would silently unset whatever it omitted.
 
 Anything the translation misses can still be set by hand through
 `lsp.shopware-lsp.initialization_options`, which is merged last and wins.
