@@ -167,6 +167,11 @@ registry.
   a `WorkspaceEdit` the client must apply, and nothing is written server-side.
   Trusting the doc produces a command that reports success and changes no
   files. Read the handler in `internal/lsp/commands/` before wiring a new one.
+- **Resolve a pick with `choose_indexes`, never `options.index(chosen)`.**
+  Labels come from server data and repeat: two service definitions can share
+  one, and a template can appear twice in its own usages. `index` returns the
+  first match, so the action lands on an entry the user did not select.
+  `choose` is the thin wrapper for callers that only need the text.
 - **`$ZED_COLUMN` is a UTF-8 byte offset, LSP positions are UTF-16.** Zed's
   `Point.column` advances by `c.len_utf8()` (`crates/rope/src/rope.rs`,
   `TextSummary::from`), so the two disagree on every line containing a

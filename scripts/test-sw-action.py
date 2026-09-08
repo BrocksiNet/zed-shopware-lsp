@@ -18,6 +18,7 @@ import re
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -101,6 +102,131 @@ class ByteColumns(unittest.TestCase):
     def test_offsets_out_of_range_clamp(self):
         self.assertEqual(sw.byte_column_to_index(self.LINE, -5), 0)
         self.assertEqual(sw.byte_column_to_index(self.LINE, 9999), len(self.LINE))
+
+
+class Picker(unittest.TestCase):
+    """Labels come from server data and repeat, so picks resolve by position."""
+
+    DUPLICATES = ["Service", "Service", "Other"]
+
+    def numbered(self, options, answer, multi=False):
+        with (
+            mock.patch.object(sw.shutil, "which", return_value=None),
+            mock.patch("builtins.input", return_value=answer),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+        ):
+            result = sw.choose_indexes(options, "thing", multi)
+        return result, out.getvalue()
+
+    def fzf(self, options, stdout, multi=False):
+        recorded = {}
+
+        def fake_run(args, **kwargs):
+            recorded["args"] = args
+            recorded["input"] = kwargs.get("input", "")
+            return argparse.Namespace(stdout=stdout)
+
+        with (
+            mock.patch.object(sw.shutil, "which", return_value="/usr/bin/fzf"),
+            mock.patch.object(sw.subprocess, "run", fake_run),
+        ):
+            return sw.choose_indexes(options, "thing", multi), recorded
+
+    def test_numbered_prompt_resolves_the_second_duplicate(self):
+        self.assertEqual(self.numbered(self.DUPLICATES, "2")[0], [1])
+
+    def test_numbered_prompt_multi_keeps_both_duplicates(self):
+        self.assertEqual(self.numbered(self.DUPLICATES, "1,2", multi=True)[0], [0, 1])
+
+    def test_zero_is_rejected_rather_than_read_as_the_last_entry(self):
+        with self.assertRaises(SystemExit):
+            self.numbered(self.DUPLICATES, "0")
+
+    def test_out_of_range_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            self.numbered(self.DUPLICATES, "4")
+
+    def test_fzf_resolves_by_ordinal_not_by_matching_text(self):
+        # fzf echoes back the line it was given, ordinal included.
+        indexes, _ = self.fzf(self.DUPLICATES, "1\tService\n")
+        self.assertEqual(indexes, [1])
+
+    def test_fzf_is_given_ordinals_and_told_to_hide_them(self):
+        _, recorded = self.fzf(self.DUPLICATES, "0\tService\n")
+        self.assertEqual(recorded["input"].splitlines()[1], "1\tService")
+        self.assertIn("--with-nth", recorded["args"])
+        self.assertIn("2..", recorded["args"])
+
+    def test_fzf_multi_returns_every_position(self):
+        indexes, _ = self.fzf(self.DUPLICATES, "0\tService\n2\tOther\n", multi=True)
+        self.assertEqual(indexes, [0, 2])
+
+    def test_empty_fzf_output_exits(self):
+        with self.assertRaises(SystemExit):
+            self.fzf(self.DUPLICATES, "\n")
+
+    def test_choose_still_returns_the_text(self):
+        with (
+            mock.patch.object(sw.shutil, "which", return_value=None),
+            mock.patch("builtins.input", return_value="3"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(sw.choose(self.DUPLICATES, "thing", False), ["Other"])
+
+
+class PickLocation(unittest.TestCase):
+    """Note what these do not cover: since the label now ends in `path:line`,
+    it is unique whenever the entry is, so resolving by text would pass here
+    too. The position-based resolution is pinned by `Picker` above, and it is
+    what protects the three call sites whose labels are not self-identifying:
+    form variables, snippet files and scaffolds."""
+
+    ENTRIES = [("Service", "/root/a/One.php", 10), ("Service", "/root/b/Two.php", 20)]
+
+    def pick(self, answer):
+        opened = {}
+        args = argparse.Namespace(root="/root", print_only=True)
+        with (
+            mock.patch.object(sw.shutil, "which", return_value=None),
+            mock.patch("builtins.input", return_value=answer),
+            mock.patch.object(
+                sw,
+                "open_location",
+                lambda path, line, root, print_only: opened.update(path=path, line=line),
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+        ):
+            sw.pick_location(list(self.ENTRIES), "service", args)
+        return opened, out.getvalue()
+
+    def test_identical_labels_open_the_one_that_was_chosen(self):
+        opened, _ = self.pick("2")
+        self.assertEqual(opened, {"path": "/root/b/Two.php", "line": 20})
+
+    def test_the_list_shows_path_and_line_so_duplicates_are_distinguishable(self):
+        _, listing = self.pick("1")
+        self.assertIn("a/One.php:10", listing)
+        self.assertIn("b/Two.php:20", listing)
+
+    def test_an_entry_without_a_location_is_reported_not_opened(self):
+        opened = {}
+        args = argparse.Namespace(root="/root", print_only=True)
+        with (
+            mock.patch.object(sw.shutil, "which", return_value=None),
+            mock.patch("builtins.input", return_value="1"),
+            mock.patch.object(
+                sw, "open_location", lambda *a: opened.update(called=True)
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+        ):
+            sw.pick_location([("Orphan", "", 0)], "service", args)
+        self.assertEqual(opened, {})
+        self.assertIn("no source location", out.getvalue())
+
+    def test_no_entries_exits(self):
+        args = argparse.Namespace(root="/root", print_only=True)
+        with self.assertRaises(SystemExit):
+            sw.pick_location([], "service", args)
 
 
 class InsertUuid(unittest.TestCase):

@@ -210,19 +210,44 @@ def execute(binary, root, method, payload):
         sys.exit(f"{method} returned non-JSON: {output[:200]}")
 
 
-def choose(options, prompt, multi):
-    """Pick with fzf when available, otherwise a numbered prompt."""
+def choose_indexes(options, prompt, multi=False):
+    """Pick from `options` and return the positions chosen.
+
+    Positions rather than strings, because labels are built from server data
+    and are not unique: two service definitions can share one, and a template
+    can appear twice in its own usages. Resolving a pick with
+    `options.index(chosen)` then silently returns the first match, so the
+    caller acts on an entry the user did not select.
+    """
     if not options:
         sys.exit(f"no {prompt} available here")
 
     if shutil.which("fzf"):
-        args = ["fzf", "--prompt", f"{prompt}> ", "--height", "40%"]
+        # A tab-separated ordinal carries the position through fzf. It echoes
+        # the whole line back, while --with-nth keeps field 1 out of the list
+        # and out of matching.
+        tagged = [f"{index}\t{option}" for index, option in enumerate(options)]
+        args = [
+            "fzf",
+            "--prompt",
+            f"{prompt}> ",
+            "--height",
+            "40%",
+            "--delimiter",
+            "\t",
+            "--with-nth",
+            "2..",
+        ]
         if multi:
             args.append("--multi")
         picked = subprocess.run(
-            args, input="\n".join(options), capture_output=True, text=True
+            args, input="\n".join(tagged), capture_output=True, text=True
         ).stdout.splitlines()
-        picked = [line for line in picked if line.strip()]
+        indexes = []
+        for line in picked:
+            ordinal = line.split("\t", 1)[0].strip()
+            if ordinal.isdigit() and int(ordinal) < len(options):
+                indexes.append(int(ordinal))
     else:
         for index, option in enumerate(options, 1):
             print(f"  {index:4}  {option}")
@@ -230,14 +255,26 @@ def choose(options, prompt, multi):
             prompt + (" (numbers, comma separated): " if multi else " (number): ")
         )
         try:
-            wanted = [int(part) for part in raw.replace(",", " ").split()]
-            picked = [options[index - 1] for index in wanted]
-        except (ValueError, IndexError):
+            indexes = [int(part) - 1 for part in raw.replace(",", " ").split()]
+        except ValueError:
+            sys.exit("invalid selection")
+        # Python would read a negative index as counting from the end, so 0
+        # used to pick the last entry.
+        if any(index < 0 or index >= len(options) for index in indexes):
             sys.exit("invalid selection")
 
-    if not picked:
+    if not indexes:
         sys.exit("nothing selected")
-    return picked if multi else picked[:1]
+    return indexes if multi else indexes[:1]
+
+
+def choose(options, prompt, multi):
+    """Pick with fzf when available, otherwise a numbered prompt.
+
+    For callers that only need the text back. Anything that maps the pick to a
+    structure must use `choose_indexes`, since labels can repeat.
+    """
+    return [options[index] for index in choose_indexes(options, prompt, multi)]
 
 
 def relative(path, root):
@@ -319,8 +356,7 @@ def run_twig_form_fields(args, binary):
     labels = [
         "{}  ({})".format(form["variable"], form.get("formType", "?")) for form in forms
     ]
-    chosen = choose(labels, "form variable", False)[0]
-    form = forms[labels.index(chosen)]
+    form = forms[choose_indexes(labels, "form variable")[0]]
 
     generate = dict(request)
     generate.update(
@@ -477,8 +513,7 @@ def run_snippet_create(args, binary, domain):
     labels = [
         "{}  ({})".format(entry.get("name", "?"), entry.get("path", "")) for entry in paths
     ]
-    picked = choose(labels, "snippet files", True)
-    chosen = [paths[labels.index(label)] for label in picked]
+    chosen = [paths[index] for index in choose_indexes(labels, "snippet files", True)]
 
     value = args.value if args.value is not None else input(f"value for {key}: ")
 
@@ -676,8 +711,7 @@ def run_scaffold(args, binary):
         )
         for entry in scaffolds
     ]
-    chosen = choose(labels, "scaffold", False)[0]
-    entry = scaffolds[labels.index(chosen)]
+    entry = scaffolds[choose_indexes(labels, "scaffold")[0]]
 
     if entry.get("workflow") == "entity-schema":
         print(
@@ -989,11 +1023,17 @@ def pick_location(entries, prompt, args):
     """Show `entries` as `(label, path, line)` and open the chosen one."""
     if not entries:
         sys.exit(f"no {prompt} found")
-    labels = [label for label, _, _ in entries]
-    chosen = choose(labels, prompt, False)[0]
-    _, path, line = entries[labels.index(chosen)]
+    labels = [
+        "{}  {}".format(
+            label,
+            f"{relative(path, args.root)}:{max(line, 1)}" if path else "(no location)",
+        )
+        for label, path, line in entries
+    ]
+    index = choose_indexes(labels, prompt)[0]
+    label, path, line = entries[index]
     if not path:
-        print(f"  {chosen}")
+        print(f"  {label}")
         print("  (no source location reported for this entry)")
         return
     open_location(path, line, args.root, args.print_only)

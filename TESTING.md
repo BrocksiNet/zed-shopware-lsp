@@ -85,6 +85,10 @@ treats `examples/` as code, because it is what people copy:
   silently does nothing on a mismatch, with no error in any log.
 * Every task passing `$ZED_FILE` declares a `save` strategy, and every task
   names an action the script actually has.
+* The picker resolves a selection by position, under both fzf and the
+  numbered fallback. Labels are built from server data and repeat, so
+  `options.index(chosen)` returned the first match and acted on an entry the
+  user did not pick.
 * `run_uuid` against real files in a temporary directory: first line, mid
   line, empty file, no trailing newline, row and column past the end, and the
   final blank line after a trailing newline. That last one is a real
