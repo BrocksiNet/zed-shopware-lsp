@@ -312,26 +312,35 @@ context server pointed straight at the binary.
 
 ### Command parity
 
-Two separate lists, counted separately because they are easy to conflate. The
-**palette** is what `contributes.commands` in the VS Code manifest declares:
-22 entries in 0.3.53. The **client commands** are the 23 the server asks a
-client to run, almost all of them attached to code actions rather than the
-palette. Three actions serve both lists, so 11 + 12 comes to 20 distinct
-actions here.
+Two lists, counted separately because they are easy to conflate. The
+**palette** is what `contributes.commands` declares in the VS Code manifest.
+The **client commands** are the ones the server asks a client to run, almost
+all attached to code actions rather than to the palette.
+
+11 of 22 palette commands and 12 of 23 client commands have task
+equivalents. 3 actions serve both lists, which is how those add up to the
+20 named actions in the table above.
 
 Not covered, and why:
 
 | Missing | Reason |
 |---|---|
-| `insertSnippet`, `createSnippetFromSelection` | worth adding; they need a picker over existing snippets |
-| `runConsoleCommandPicker` | a Zed task can run `bin/console` directly, so the picker is the only missing part |
-| `browseFormTypes`, `browseTwigComponents`, `browseTwigExtensions`, `analyzeTwigTemplateVariables`, `twigVariables` | browsers over analytics endpoints; no equivalent yet |
+| `analyzeTwigTemplateVariables`, `browseFormTypes`, `browseTwigComponents`, `browseTwigExtensions`, `twigVariables` | analytics browser, no equivalent yet |
+| `createSnippetFromSelection`, `createAdminSnippetFromSelection` | worth adding; needs the selection plus a snippet-file picker |
+| `insertSnippet`, `insertSnippetAtPosition` | worth adding; needs a picker over existing snippets |
+| `runConsoleCommandPicker`, `runConsoleCommand` | a task runs bin/console directly; only the picker is missing |
+| `extendComponent`, `overrideMethod` | picker-then-insert over Vue components, no equivalent yet |
 | `browseDoctrineEntities` | returns nothing for Shopware, which uses the DAL rather than Doctrine |
 | `browseProfilerRequests` | needs the profiler UI |
-| `shopwareLSP.restart` | Zed's own `language server: restart` covers it |
+| `restart` | Zed's own `language server: restart` covers it |
+| `copySnippetUsage` | clipboard-only convenience; no clipboard access from a task |
+| `createEventListener` | worth adding; the server command exists |
+| `openReferences` | declared in supportedCommands so the lenses render; Zed cannot execute it |
 
-These counts are hand-maintained and go stale. Checking them is
-`scripts/inventory.py`'s territory, and gating them is not implemented yet.
+The counts come from `inventory/parity.json`, which records a decision for
+every upstream command. `scripts/test-sw-action.py` fails when this section
+disagrees with it, and `scripts/inventory.py` fails when upstream adds a
+command the map does not mention.
 
 ### Code lenses
 

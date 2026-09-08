@@ -11,17 +11,22 @@ Most categories are absorbed automatically by design:
   live rather than hardcoding kinds;
 * new **MCP tools** reach Zed's Agent Panel, since the context server passes
   through whatever the server offers;
-* new **client commands** are filtered out by our empty `supportedCommands`,
-  so they never become dead menu entries.
+* new **client commands** are filtered out by our `supportedCommands`, so they
+  never become dead menu entries, though they still count against parity.
 
-Two categories are not:
+Three categories are not:
 
 * a new **server command** may be a generator worth wiring into `sw-action.py`,
   and nothing will tell us unless we look;
-* a **removed or renamed** command breaks an action we already ship.
+* a **removed or renamed** command breaks an action we already ship;
+* a new **palette or client command** changes how complete this extension is,
+  and the README's parity counts silently go stale. They did: the table
+  compared the client-command count against the palette's coverage for
+  several releases.
 
 So this compares a snapshot of the server's own inventories against
-`inventory/snapshot.json`.
+`inventory/snapshot.json`, and every palette and client command against a
+decision recorded in `inventory/parity.json`.
 
     scripts/inventory.py --check    # diff, and verify what we depend on
     scripts/inventory.py --write    # accept the current surface as the baseline
@@ -40,7 +45,9 @@ import subprocess
 import sys
 
 SNAPSHOT = pathlib.Path(__file__).resolve().parent.parent / "inventory" / "snapshot.json"
+PARITY = SNAPSHOT.parent / "parity.json"
 ACTION_SCRIPT = pathlib.Path(__file__).resolve().parent / "sw-action.py"
+MANIFEST_URL = "https://open-vsx.org/api/shopware/shopware-lsp/linux-x64/latest"
 
 
 def server_binary():
@@ -180,7 +187,57 @@ def mcp_tools(binary, root):
     return sorted(tools)
 
 
-def collect(binary, root):
+def palette_commands(extension_dir):
+    """Command ids the VS Code extension puts in the palette.
+
+    Not the same list as the server's clientCommands, which are almost all
+    attached to code actions. Conflating the two is how the README came to
+    compare one list's size against the other's coverage.
+
+    Read from a local unzipped vsix when given one, since CI already downloads
+    it for contract-check.py, and fetched from Open VSX otherwise. There is no
+    skip path: a parity gate that quietly does nothing is worse than none.
+    """
+    if extension_dir:
+        manifest = json.loads((pathlib.Path(extension_dir) / "package.json").read_text())
+    else:
+        import io
+        import urllib.request
+        import zipfile
+
+        with urllib.request.urlopen(MANIFEST_URL, timeout=60) as response:
+            url = json.load(response)["files"]["download"]
+        with urllib.request.urlopen(url, timeout=180) as response:
+            archive = zipfile.ZipFile(io.BytesIO(response.read()))
+        manifest = json.loads(archive.read("extension/package.json"))
+
+    commands = manifest.get("contributes", {}).get("commands") or []
+    return sorted(entry["command"] for entry in commands)
+
+
+def check_parity(current):
+    """Every upstream command must have a decision recorded in parity.json."""
+    if not PARITY.is_file():
+        return [f"no parity map at {PARITY}"], []
+    parity = json.loads(PARITY.read_text())
+
+    breakage, additions = [], []
+    for key, group in (("palette", "paletteCommands"), ("clientCommands", "clientCommands")):
+        recorded = parity.get(key) or {}
+        upstream = set(current[group])
+        for command in sorted(upstream - set(recorded)):
+            additions.append(
+                f"{key}: {command} is new and has no entry in parity.json; "
+                "record the action that covers it, or why none does"
+            )
+        for command in sorted(set(recorded) - upstream):
+            breakage.append(
+                f"{key}: parity.json still maps {command}, which upstream removed"
+            )
+    return breakage, additions
+
+
+def collect(binary, root, extension_dir=None):
     result = initialize(binary, root)
     capabilities = result.get("capabilities", {})
     experimental = capabilities.get("experimental", {}).get("shopwareLSP", {})
@@ -210,6 +267,7 @@ def collect(binary, root):
             f"{entry.get('family', '?')}/{entry.get('kind', '?')}"
             for entry in catalog.get("scaffolds") or []
         ),
+        "paletteCommands": palette_commands(extension_dir),
         "mcpTools": mcp_tools(binary, root),
         "features": sorted(config.get("features", {}).keys()),
         "cliCommands": sorted(
@@ -248,11 +306,15 @@ def main():
     group.add_argument("--write", action="store_true")
     parser.add_argument("--root", default=os.getcwd())
     parser.add_argument("--binary")
+    parser.add_argument(
+        "--extension-dir",
+        help="unzipped vsix `extension/` directory; fetched from Open VSX when omitted",
+    )
     args = parser.parse_args()
 
     binary = args.binary or server_binary()
     root = os.path.abspath(args.root)
-    current = collect(binary, root)
+    current = collect(binary, root, args.extension_dir)
 
     if args.write:
         SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
@@ -267,8 +329,7 @@ def main():
         sys.exit(f"no snapshot at {SNAPSHOT}; run --write first")
     previous = json.loads(SNAPSHOT.read_text())
 
-    breakage = []
-    additions = []
+    breakage, additions = check_parity(current)
 
     # Anything sw-action.py calls must still exist.
     available = set(current["serverCommands"])
@@ -301,8 +362,10 @@ def main():
             print(f"  - {line}")
         print()
         print(
-            "Scaffolds, MCP tools and client commands are absorbed automatically.\n"
+            "Scaffolds and MCP tools are absorbed automatically.\n"
             "A new server command may be a generator worth adding to sw-action.py.\n"
+            "A new palette or client command needs an inventory/parity.json entry,\n"
+            "and the README counts move with it; test-sw-action.py checks that.\n"
             "Once reviewed, re-run with --write and commit the snapshot."
         )
 

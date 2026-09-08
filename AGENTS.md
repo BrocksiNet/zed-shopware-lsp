@@ -83,6 +83,7 @@ impossible here.
 | `scripts/sw-action.py` | Runs picker-based generator actions from a Zed task, since they cannot be code actions. |
 | `scripts/inventory.py` | Golden-file gate that reports new or removed upstream surface. |
 | `inventory/snapshot.json` | The accepted upstream surface. Update deliberately, never blindly. |
+| `inventory/parity.json` | A decision for every upstream palette and client command: the action covering it, or why none does. Drives the README's parity counts. |
 | `examples/` | `tasks.json`, `keymap.json`, `settings.json` to copy into a project. |
 | `snippets/` | Ported from upstream `vscode-extension/snippets` (MIT). Zed matches by lowercase language name, so `config-xml.json` is `xml.json` here. VS Code syntax carries over unchanged, including `${1\|a,b\|}` choice placeholders. |
 | `build-server.sh` | Builds the server from a local `shopware-lsp` checkout, for testing unreleased changes. Needs Go and CGO. |
@@ -200,6 +201,13 @@ registry.
   disk, so `"current"` when contents are consumed and `"none"` when only the
   path is. Leaving it out reads a stale buffer and looks like a server bug.
 - Mutation-check new tests: break the code, confirm the test fails, restore.
+- **Parity numbers are derived, not written.** `inventory/parity.json` holds a
+  decision for every palette and client command, and the README's Command
+  parity section restates its counts. `test-sw-action.py` fails when the two
+  disagree, `inventory.py` fails when upstream adds a command the map ignores.
+  Editing a count by hand is the failure mode this replaced: the table
+  compared the client-command total against the palette's coverage for
+  several releases, and nothing caught it.
 - When `scripts/inventory.py --check` reports new surface, decide what it means
   before re-snapshotting. A new server command is often a generator worth
   adding to `sw-action.py`; re-running `--write` without looking throws that

@@ -58,9 +58,13 @@ jobs:
           mkdir -p fixture/.config/shopware
           printf 'version: 1\n' > fixture/.config/shopware/lsp.yaml
 
+      # --extension-dir reuses the vsix unzipped above for the palette command
+      # list. Without it inventory.py fetches its own copy; there is no path
+      # where the parity gate quietly skips.
       - name: Compare the upstream surface against the snapshot
         run: |
           python3 scripts/inventory.py --check \
             --binary "$PWD/server/extension/shopware-lsp" \
+            --extension-dir "$PWD/server/extension" \
             --root "$PWD/fixture"
 

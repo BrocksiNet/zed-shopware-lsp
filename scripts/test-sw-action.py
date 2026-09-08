@@ -104,6 +104,92 @@ class ByteColumns(unittest.TestCase):
         self.assertEqual(sw.byte_column_to_index(self.LINE, 9999), len(self.LINE))
 
 
+class Parity(unittest.TestCase):
+    """inventory/parity.json against the script, and against the README.
+
+    inventory.py covers the other direction, that upstream has not added a
+    command the map ignores. That needs the server and the vsix; this does not.
+    """
+
+    def setUp(self):
+        self.parity = json.loads((ROOT / "inventory" / "parity.json").read_text())
+        self.groups = {
+            key: self.parity[key] for key in ("palette", "clientCommands")
+        }
+        self.readme = (ROOT / "README.md").read_text()
+        # Prose wraps, so compare against a single-spaced form.
+        self.prose = re.sub(r"\s+", " ", self.readme)
+
+    def entries(self):
+        for group, commands in self.groups.items():
+            for command, entry in commands.items():
+                yield group, command, entry
+
+    def counts(self, group):
+        commands = self.groups[group]
+        return sum(1 for e in commands.values() if "action" in e), len(commands)
+
+    def test_every_entry_is_covered_or_explained(self):
+        for group, command, entry in self.entries():
+            keys = set(entry)
+            self.assertIn(keys, [{"action"}, {"gap"}], f"{group}: {command} -> {entry}")
+
+    def test_every_named_action_exists(self):
+        known = set(sw.action_names())
+        for group, command, entry in self.entries():
+            if "action" in entry:
+                self.assertIn(entry["action"], known, f"{group}: {command}")
+
+    def test_no_gap_reason_is_empty(self):
+        for group, command, entry in self.entries():
+            if "gap" in entry:
+                self.assertTrue(entry["gap"].strip(), f"{group}: {command}")
+
+    def test_readme_states_the_counts_the_map_implies(self):
+        # The stale-number bug this whole gate exists for.
+        palette_covered, palette_total = self.counts("palette")
+        client_covered, client_total = self.counts("clientCommands")
+        sentence = (
+            f"{palette_covered} of {palette_total} palette commands and "
+            f"{client_covered} of {client_total} client commands have task "
+            "equivalents"
+        )
+        self.assertIn(sentence, self.prose)
+
+    def test_readme_comparison_rows_agree_with_the_map(self):
+        palette_covered, palette_total = self.counts("palette")
+        client_covered, client_total = self.counts("clientCommands")
+        self.assertIn(
+            f"| {palette_total} palette commands | no palette; "
+            f"{palette_covered} equivalents as tasks",
+            self.readme,
+        )
+        self.assertIn(
+            f"| {client_total} client commands behind code actions | "
+            f"{client_covered} equivalents as tasks",
+            self.readme,
+        )
+
+    def test_the_gap_table_lists_every_gap(self):
+        # A gap recorded but not documented is invisible to a reader.
+        for group, command, entry in self.entries():
+            if "gap" not in entry:
+                continue
+            short = command.rsplit(".", 1)[-1]
+            self.assertIn(f"`{short}`", self.readme, f"{group}: {command}")
+
+    def test_distinct_actions_reconcile(self):
+        # Three actions serve both lists; the README explains the arithmetic,
+        # so it has to hold.
+        actions = {
+            entry["action"] for _, _, entry in self.entries() if "action" in entry
+        }
+        palette_covered, _ = self.counts("palette")
+        client_covered, _ = self.counts("clientCommands")
+        shared = palette_covered + client_covered - len(actions)
+        self.assertIn(f"{shared} actions serve both lists", self.prose)
+
+
 class Picker(unittest.TestCase):
     """Labels come from server data and repeat, so picks resolve by position."""
 

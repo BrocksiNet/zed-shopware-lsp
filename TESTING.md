@@ -85,6 +85,11 @@ treats `examples/` as code, because it is what people copy:
   silently does nothing on a mismatch, with no error in any log.
 * Every task passing `$ZED_FILE` declares a `save` strategy, and every task
   names an action the script actually has.
+* `inventory/parity.json` is self-consistent: every entry either names an
+  action the script has or explains the gap, every gap appears in the README's
+  table, and the README's counts are the ones the map implies. That last check
+  is the one that would have caught "23 palette commands, 13 equivalents",
+  where the numbers came from two different lists.
 * The picker resolves a selection by position, under both fzf and the
   numbered fallback. Labels are built from server data and repeat, so
   `options.index(chosen)` returned the first match and acted on an entry the
@@ -128,6 +133,12 @@ reach for it only when upstream breaks something and you want the rest of the
 suite to keep guarding.
 
 ## 3. Upstream surface drift, `scripts/inventory.py`
+
+Also gates parity: every palette command (read from the VS Code manifest) and
+every client command must have an entry in `inventory/parity.json`. A new one
+fails as new surface until somebody records the action that covers it or why
+none does. Pass `--extension-dir` to reuse an unzipped vsix; without it the
+manifest is fetched, and there is deliberately no path where the check skips.
 
 Layers 1 and 2 guard what we already know about. Neither notices *new* upstream
 surface, which is the other half of the problem: shopware-lsp gains commands,
