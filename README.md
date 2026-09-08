@@ -178,7 +178,7 @@ None are required. `examples/settings.json` has these ready to merge.
 
 | Setting | What it does |
 |---|---|
-| `lsp.shopware-lsp.settings.shopwareLSP.*` | Forwarded verbatim on `workspace/configuration`. The server's own options, e.g. `activationMode`, `memoryLimitMiB` |
+| `lsp.shopware-lsp.settings.shopwareLSP.*` | The VS Code setting names. Translated into the shape the server reads, see below |
 | `lsp.shopware-lsp.binary.path` | Pin the language server binary. Taken as given; the extension cannot verify it exists |
 | `lsp.shopware-lsp.binary.arguments` | Extra arguments for the language server |
 | `lsp.shopware-lsp.initialization_options` | Deep-merged over the defaults, so you can override one key. Use `shopwareClient.supportedCommands` to change code-lens filtering |
@@ -187,6 +187,22 @@ None are required. `examples/settings.json` has these ready to merge.
 | `languages.PHP.language_servers` | Pick one PHP server. See below |
 | `languages.PHP.formatter` | `{"code_action": "source.organizeImports"}` to organize imports on save |
 | `lsp.yaml-language-server.settings.yaml.schemas` | Validate `.config/shopware/lsp.yaml` against the server's schema |
+
+`shopwareLSP.*` uses the VS Code setting names, but the server has no such
+configuration namespace, so they are translated rather than forwarded:
+
+| Setting | Where it goes |
+|---|---|
+| `phpExtensions`, `disabledPhpExtensions`, `shopwareTargetVersion` | named `initializationOptions` fields |
+| `features`, `domains`, `indexing.*`, `diagnostics.*`, `mcp.tools` | `initializationOptions.configuration`, the `lsp.yaml` shape |
+| `memoryLimitMiB` | `GOMEMLIMIT` on the server process |
+| `activationMode` | **not supported.** VS Code decides whether to start the server at all; Zed's extension API cannot. The server refuses to start outside a Shopware or Symfony project anyway |
+| `serverPath` | use `lsp.shopware-lsp.binary.path` |
+| `phpExecutable` | **not supported.** Only used by VS Code's Symfony console code lenses, which Zed cannot run |
+| `mcp.enabled` | drop the `context_servers.shopware-lsp` entry instead |
+
+Anything the translation misses can still be set by hand through
+`lsp.shopware-lsp.initialization_options`, which is merged last and wins.
 
 The two binary settings are independent on purpose. `lsp.…binary.path` covers
 the editor, `context_servers.…command.path` covers the Agent Panel, and

@@ -136,6 +136,95 @@ fn merge_json(base: &mut zed::serde_json::Value, overlay: zed::serde_json::Value
     }
 }
 
+/// Translate the VS Code style `shopwareLSP.*` block into the shape the server
+/// actually reads.
+///
+/// The server has no `shopwareLSP` configuration namespace; that name only
+/// appears in the capabilities it sends back. Editor settings arrive either as
+/// three named `initializationOptions` fields or inside `configuration`, which
+/// is the same `.config/shopware/lsp.yaml` shape. Forwarding the wrapper
+/// unchanged means every setting is silently discarded.
+///
+/// Returns the `configuration` object, empty when nothing maps.
+fn project_configuration(shopware: &zed::serde_json::Value) -> zed::serde_json::Value {
+    let mut config = zed::serde_json::Map::new();
+
+    for key in ["features", "domains"] {
+        if let Some(value) = shopware.get(key) {
+            config.insert(key.to_string(), value.clone());
+        }
+    }
+
+    // Nested blocks keep their own key names, minus the parts the editor owns:
+    // `mcp.enabled` decides whether Zed registers a context server at all, so
+    // the server never sees it.
+    for (section, keys) in [
+        ("indexing", &["enabled", "maxFileSizeMiB", "exclude"][..]),
+        (
+            "diagnostics",
+            &["enabled", "inspections", "rules", "overrides"][..],
+        ),
+        ("mcp", &["tools"][..]),
+    ] {
+        let source = match shopware.get(section) {
+            Some(value) => value,
+            None => continue,
+        };
+        let mut target = zed::serde_json::Map::new();
+        for key in keys {
+            if let Some(value) = source.get(*key) {
+                target.insert((*key).to_string(), value.clone());
+            }
+        }
+        if !target.is_empty() {
+            config.insert(section.to_string(), zed::serde_json::Value::Object(target));
+        }
+    }
+
+    zed::serde_json::Value::Object(config)
+}
+
+/// `initializationOptions` fields the server reads outside `configuration`.
+///
+/// `phpExtensions`, `disabledPhpExtensions` and `shopwareTargetVersion` are
+/// top-level names on the server side, folded into the project config by
+/// `editorConfiguration` during initialize.
+fn initialization_extras(shopware: &zed::serde_json::Value) -> zed::serde_json::Value {
+    let mut extras = zed::serde_json::Map::new();
+
+    for (from, to) in [
+        ("phpExtensions", "phpExtensions"),
+        ("disabledPhpExtensions", "disabledPhpExtensions"),
+        ("shopwareTargetVersion", "shopwareTargetVersion"),
+    ] {
+        match shopware.get(from) {
+            Some(zed::serde_json::Value::String(value)) if value.is_empty() => {}
+            Some(zed::serde_json::Value::Array(values)) if values.is_empty() => {}
+            Some(value) => {
+                extras.insert(to.to_string(), value.clone());
+            }
+            None => {}
+        }
+    }
+
+    let configuration = project_configuration(shopware);
+    if configuration.as_object().is_some_and(|map| !map.is_empty()) {
+        extras.insert("configuration".to_string(), configuration);
+    }
+
+    zed::serde_json::Value::Object(extras)
+}
+
+/// `GOMEMLIMIT` for `shopwareLSP.memoryLimitMiB`.
+///
+/// The server honours the variable through `internal/runtimeconfig`, but has no
+/// setting for it, so the client has to apply it when spawning. Zero means the
+/// server's own balanced policy, so nothing is set.
+fn memory_limit_env(shopware: &zed::serde_json::Value) -> Option<String> {
+    let mib = shopware.get("memoryLimitMiB")?.as_i64()?;
+    (mib > 0).then(|| format!("{mib}MiB"))
+}
+
 /// Pick a server from the sources both hooks share, in priority order.
 ///
 /// Nothing here is stat'd. The wasm sandbox only preopens the extension work
@@ -275,6 +364,15 @@ impl ShopwareLspExtension {
         }
     }
 
+    /// The `shopwareLSP` block from Zed settings, or an empty object.
+    fn shopware_settings(worktree: &zed::Worktree) -> zed::serde_json::Value {
+        LspSettings::for_worktree(SERVER_NAME, worktree)
+            .ok()
+            .and_then(|settings| settings.settings)
+            .and_then(|settings| settings.get("shopwareLSP").cloned())
+            .unwrap_or_else(|| zed::serde_json::json!({}))
+    }
+
     /// Resolve the server, preferring anything the user controls.
     ///
     /// An explicit path wins, then a `shopware-lsp` already on PATH, and only
@@ -326,24 +424,33 @@ impl zed::Extension for ShopwareLspExtension {
             .and_then(|binary| binary.arguments)
             .unwrap_or_default();
 
+        let mut env = worktree.shell_env();
+        // memoryLimitMiB has no server-side setting; the server reads
+        // GOMEMLIMIT, so the client has to apply it when spawning.
+        if let Some(limit) = memory_limit_env(&Self::shopware_settings(worktree)) {
+            env.push(("GOMEMLIMIT".to_string(), limit));
+        }
+
         Ok(zed::Command {
             command: self.server_binary(language_server_id, worktree)?,
             // No subcommand: the binary starts a stdio language server by default.
             args: arguments,
-            env: worktree.shell_env(),
+            env,
         })
     }
 
-    /// Forward the `shopwareLSP.*` block from Zed settings, so the server sees
-    /// the same configuration the VS Code extension would push.
+    /// Answer `didChangeConfiguration` with the shape the server decodes.
+    ///
+    /// It reads `{"settings": Partial}`, the `.config/shopware/lsp.yaml`
+    /// shape, not the editor's `shopwareLSP` wrapper.
     fn language_server_workspace_configuration(
         &mut self,
         _language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<Option<zed::serde_json::Value>> {
-        Ok(LspSettings::for_worktree(SERVER_NAME, worktree)
-            .ok()
-            .and_then(|settings| settings.settings))
+        Ok(Some(project_configuration(&Self::shopware_settings(
+            worktree,
+        ))))
     }
 
     fn language_server_initialization_options(
@@ -352,6 +459,13 @@ impl zed::Extension for ShopwareLspExtension {
         worktree: &zed::Worktree,
     ) -> Result<Option<zed::serde_json::Value>> {
         let mut options = default_initialization_options();
+        merge_json(
+            &mut options,
+            initialization_extras(&Self::shopware_settings(worktree)),
+        );
+
+        // A raw `initialization_options` block still wins, so anything the
+        // translation does not cover can be set by hand.
         if let Some(user) = LspSettings::for_worktree(SERVER_NAME, worktree)
             .ok()
             .and_then(|settings| settings.initialization_options)
@@ -618,6 +732,84 @@ mod tests {
             resolve_server(Some("   ".into()), Some("/cached".into()), || None),
             Some("/cached".to_string())
         );
+    }
+
+    #[test]
+    fn translates_editor_settings_into_the_server_shape() {
+        let settings = zed::serde_json::json!({
+            "phpExtensions": ["redis", "imagick"],
+            "disabledPhpExtensions": ["xdebug"],
+            "shopwareTargetVersion": "6.8",
+            "features": {"semanticTokens": false},
+            "domains": {"twig": true},
+            "indexing": {"enabled": true, "maxFileSizeMiB": 4, "exclude": ["var/**"]},
+            "diagnostics": {"enabled": true, "rules": {"php.version": "off"}},
+            "mcp": {"enabled": false, "tools": {"shopware_hover": false}},
+            // Editor-only: the server has no setting for any of these.
+            "activationMode": "auto",
+            "memoryLimitMiB": 512,
+            "phpExecutable": "php",
+            "serverPath": "/somewhere/shopware-lsp",
+        });
+
+        let extras = initialization_extras(&settings);
+        assert_eq!(extras["phpExtensions"][0], "redis");
+        assert_eq!(extras["disabledPhpExtensions"][0], "xdebug");
+        assert_eq!(extras["shopwareTargetVersion"], "6.8");
+
+        let config = &extras["configuration"];
+        assert_eq!(config["features"]["semanticTokens"], false);
+        assert_eq!(config["domains"]["twig"], true);
+        assert_eq!(config["indexing"]["maxFileSizeMiB"], 4);
+        assert_eq!(config["indexing"]["exclude"][0], "var/**");
+        assert_eq!(config["diagnostics"]["rules"]["php.version"], "off");
+        assert_eq!(config["mcp"]["tools"]["shopware_hover"], false);
+
+        // mcp.enabled decides whether Zed registers a context server, so the
+        // server must never see it; the rest are client concerns too.
+        assert!(config["mcp"].get("enabled").is_none());
+        for key in [
+            "activationMode",
+            "memoryLimitMiB",
+            "phpExecutable",
+            "serverPath",
+        ] {
+            assert!(config.get(key).is_none(), "{key} leaked into configuration");
+            assert!(
+                extras.get(key).is_none(),
+                "{key} leaked into initialization"
+            );
+        }
+        // And nothing keeps the wrapper the server does not know.
+        assert!(extras.get("shopwareLSP").is_none());
+    }
+
+    #[test]
+    fn empty_settings_produce_no_configuration_noise() {
+        let empty = zed::serde_json::json!({});
+        assert_eq!(project_configuration(&empty), zed::serde_json::json!({}));
+        assert_eq!(initialization_extras(&empty), zed::serde_json::json!({}));
+
+        // Blank values must not be forwarded as real settings.
+        let blank = zed::serde_json::json!({
+            "shopwareTargetVersion": "",
+            "phpExtensions": [],
+        });
+        assert_eq!(initialization_extras(&blank), zed::serde_json::json!({}));
+    }
+
+    #[test]
+    fn memory_limit_becomes_a_go_memory_limit() {
+        assert_eq!(
+            memory_limit_env(&zed::serde_json::json!({"memoryLimitMiB": 512})),
+            Some("512MiB".to_string())
+        );
+        // Zero is documented as "use the server's balanced policy".
+        assert_eq!(
+            memory_limit_env(&zed::serde_json::json!({"memoryLimitMiB": 0})),
+            None
+        );
+        assert_eq!(memory_limit_env(&zed::serde_json::json!({})), None);
     }
 
     #[test]
