@@ -304,10 +304,34 @@ context server pointed straight at the binary.
 | MCP server | yes, as a context server |
 | Snippets (1 PHP, 6 config XML) | yes, ported and confirmed working |
 | `yamlValidation` for `lsp.yaml` | via `examples/settings.json`, pointing at the server's own schema |
-| 23 `shopware.*` palette commands | no palette; 13 equivalents as tasks |
+| 22 palette commands | no palette; 11 equivalents as tasks. See [Command parity](#command-parity) |
+| 23 client commands behind code actions | 12 equivalents as tasks; the menu entries are filtered out |
 | Explorer and editor context menus | no, Zed has no extension menu API |
 | Code lenses | yes, text renders; clicking does nothing. See [Code lenses](#code-lenses) |
 | Entity designer, Twig block diff viewer | no, needs custom UI |
+
+### Command parity
+
+Two separate lists, counted separately because they are easy to conflate. The
+**palette** is what `contributes.commands` in the VS Code manifest declares:
+22 entries in 0.3.53. The **client commands** are the 23 the server asks a
+client to run, almost all of them attached to code actions rather than the
+palette. Three actions serve both lists, so 11 + 12 comes to 20 distinct
+actions here.
+
+Not covered, and why:
+
+| Missing | Reason |
+|---|---|
+| `insertSnippet`, `createSnippetFromSelection` | worth adding; they need a picker over existing snippets |
+| `runConsoleCommandPicker` | a Zed task can run `bin/console` directly, so the picker is the only missing part |
+| `browseFormTypes`, `browseTwigComponents`, `browseTwigExtensions`, `analyzeTwigTemplateVariables`, `twigVariables` | browsers over analytics endpoints; no equivalent yet |
+| `browseDoctrineEntities` | returns nothing for Shopware, which uses the DAL rather than Doctrine |
+| `browseProfilerRequests` | needs the profiler UI |
+| `shopwareLSP.restart` | Zed's own `language server: restart` covers it |
+
+These counts are hand-maintained and go stale. Checking them is
+`scripts/inventory.py`'s territory, and gating them is not implemented yet.
 
 ### Code lenses
 
