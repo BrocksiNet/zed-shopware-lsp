@@ -172,6 +172,29 @@ generic client:
 second array element if you have one.
 
 
+### Every setting, in one place
+
+None are required. `examples/settings.json` has these ready to merge.
+
+| Setting | What it does |
+|---|---|
+| `lsp.shopware-lsp.settings.shopwareLSP.*` | Forwarded verbatim on `workspace/configuration`. The server's own options, e.g. `activationMode`, `memoryLimitMiB` |
+| `lsp.shopware-lsp.binary.path` | Pin the language server binary. Taken as given; the extension cannot verify it exists |
+| `lsp.shopware-lsp.binary.arguments` | Extra arguments for the language server |
+| `lsp.shopware-lsp.initialization_options` | Deep-merged over the defaults, so you can override one key. Use `shopwareClient.supportedCommands` to change code-lens filtering |
+| `context_servers.shopware-lsp.command.path` | Pin the **MCP** binary. Needed separately: the MCP hook has no `PATH` and no `Worktree::which` |
+| `context_servers.shopware-lsp.settings.root` | Project root for the MCP server, for multi-root workspaces |
+| `languages.PHP.language_servers` | Pick one PHP server. See below |
+| `languages.PHP.formatter` | `{"code_action": "source.organizeImports"}` to organize imports on save |
+| `lsp.yaml-language-server.settings.yaml.schemas` | Validate `.config/shopware/lsp.yaml` against the server's schema |
+
+The two binary settings are independent on purpose. `lsp.…binary.path` covers
+the editor, `context_servers.…command.path` covers the Agent Panel, and
+setting only one leaves the two answering from different builds.
+
+Project-level server configuration lives in `.config/shopware/lsp.yaml` in the
+workspace root, not in Zed settings, and needs `version: 1`.
+
 ## Running alongside another PHP server
 
 The extension registers `shopware-lsp` for PHP, and Zed's `"..."` wildcard in
