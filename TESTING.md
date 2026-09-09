@@ -301,8 +301,23 @@ server. Re-run `zed: install dev extension` first.
       syntax `${1|text,textarea,password,url|}` and Zed offers all four as a
       pick-list, sorted alphabetically rather than in snippet order. Confirmed
       2026-09-07, so the snippets need no rewriting.
-- [ ] Multi-root workspace: with `context_servers.shopware-lsp.settings.root`
-      set, the MCP server targets that root.
+- [x] Multi-root workspace: with `context_servers.shopware-lsp.settings.root`
+      set, the MCP server targets that root. Confirmed 2026-09-09, and read it
+      from Zed rather than inferred: the `--mcp-config` Zed hands the agent
+      (visible in `ps` on the agent process) carried
+      `args: ["-root", "<project>", "mcp"]`.
+
+      Tested with a *single*-root workspace opened on an unrelated Rust repo,
+      which is stronger than the multi-root case for this mechanism: with no
+      matching worktree, no open PHP file and so no language server, both other
+      sources in `mcp_root` were empty, and the working-directory fallback
+      would have made `shopware-lsp mcp` refuse to start outside a Shopware or
+      Symfony project. So the negative control is built in. What that does not
+      cover is whether a genuine multi-root workspace spawns one context server
+      per project or per worktree.
+
+      `command` must be absent for any of this to matter -- see the note under
+      the Agent Panel binary check.
 - [x] `Shopware: insert UUID` puts 32 hex characters at the cursor, not at the
       start of the line. Test on a line with an emoji before the cursor:
       `$ZED_COLUMN` is a UTF-8 byte offset, so a character-based or UTF-16
