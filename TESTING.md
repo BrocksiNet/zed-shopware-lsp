@@ -303,10 +303,28 @@ server. Re-run `zed: install dev extension` first.
       2026-09-07, so the snippets need no rewriting.
 - [ ] Multi-root workspace: with `context_servers.shopware-lsp.settings.root`
       set, the MCP server targets that root.
-- [ ] `Shopware: insert UUID` puts 32 hex characters at the cursor, not at the
+- [x] `Shopware: insert UUID` puts 32 hex characters at the cursor, not at the
       start of the line. Test on a line with an emoji before the cursor:
       `$ZED_COLUMN` is a UTF-8 byte offset, so a character-based or UTF-16
-      conversion lands in the wrong place.
+      conversion lands in the wrong place. Confirmed 2026-09-09 on `🎉ab`
+      with the cursor between `a` and `b`: Zed passes `ZED_COLUMN=6`, one-based
+      UTF-8 bytes exactly as documented, giving `🎉a<32 hex>b` with the
+      emoji still four bytes.
+
+      Measure the column before believing a mis-insertion. Clicking beside a
+      wide emoji lands a character early easily, and column 5 -- the cursor
+      before the `a` -- produces a wrong-looking but correct result that reads
+      as an encoding bug. A throwaway task running a script that prints
+      `$ZED_COLUMN` next to the insertion point each candidate reading implies
+      settles it in one run.
+
+      Two things about Zed tasks that cost time here. Zed joins `command` and
+      `args` into a single string and runs it through `/bin/zsh -i -c`, so
+      arguments are word-split and globbed: an inline `python3 -c` snippet dies
+      on its parentheses, and a `$ZED_FILE` containing a space would break
+      every task in `examples/tasks.json`. And with autosave on, a stale buffer
+      can write back over what the task just wrote, so read the file from disk
+      rather than trusting the buffer.
 
 ## Fixtures worth knowing about
 
