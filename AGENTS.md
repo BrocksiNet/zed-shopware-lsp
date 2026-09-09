@@ -91,7 +91,7 @@ impossible here.
 | `inventory/parity.json` | A decision for every upstream palette and client command: the action covering it, or why none does. Drives the README's parity counts. |
 | `examples/` | `tasks.json`, `keymap.json`, `settings.json` to copy into a project. |
 | `snippets/` | Ported from upstream `vscode-extension/snippets` (MIT). Zed matches by lowercase language name, so `config-xml.json` is `xml.json` here. VS Code syntax carries over unchanged, including `${1\|a,b\|}` choice placeholders. |
-| `build-server.sh` | Builds the server from a local `shopware-lsp` checkout, for testing unreleased changes. Needs Go and CGO. |
+| `build-server.sh` | Builds `feat/next-gen` from a local `shopware-lsp` checkout into `~/.local/bin`, for fixes that merged but have not shipped. Builds from a throwaway worktree at the fetched commit, never the working tree. Needs Go and CGO. |
 | `update-server.sh` | Installs the published server into `~/.local/bin`. |
 | `TESTING.md` | The three-layer test plan and the manual Zed checklist. |
 
@@ -151,6 +151,14 @@ registry.
 - **The 0.3.x server source lives on the `feat/next-gen` branch** of
   `shopware/shopware-lsp`, not `main`. `main` is months behind and has no
   semantic tokens, MCP, or inlay hints.
+- **Open VSX lags `feat/next-gen`, and that shows up as false diagnostics.**
+  Releases land every few days, so the gap is small but real: 0.3.53 read
+  every PHPStan `@template` as an empty Symfony `@Template` for two days after
+  the fix merged. `build-server.sh` is the escape hatch. Do not put the build
+  inside the extension: `process::run_command` exists in the API, but it is
+  synchronous, the `command` record has no `cwd`, and it would make Go and
+  CGO a requirement to bridge a gap that closes by itself on the next Zed
+  start.
 - **Binaries come from Open VSX, not GitHub releases.** GitHub releases stopped
   at 0.1.2 while Open VSX ships 0.3.x. Cursor's own registry is also stale at
   0.1.2, so installing by extension ID there downgrades.
