@@ -159,6 +159,11 @@ registry.
   synchronous, the `command` record has no `cwd`, and it would make Go and
   CGO a requirement to bridge a gap that closes by itself on the next Zed
   start.
+- **A `shopware-lsp` on `PATH` shadows the managed download permanently.**
+  `resolve_server` tries `Worktree::which` before the download, by design, so
+  a leftover local build keeps being used and never auto-updates while the
+  download sits unused. Remove it to hand control back. The three scripts fall
+  back to the download precisely so nothing has to stay in `~/.local/bin`.
 - **Binaries come from Open VSX, not GitHub releases.** GitHub releases stopped
   at 0.1.2 while Open VSX ships 0.3.x. Cursor's own registry is also stale at
   0.1.2, so installing by extension ID there downgrades.

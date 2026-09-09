@@ -50,6 +50,41 @@ ACTION_SCRIPT = pathlib.Path(__file__).resolve().parent / "sw-action.py"
 MANIFEST_URL = "https://open-vsx.org/api/shopware/shopware-lsp/linux-x64/latest"
 
 
+def zed_managed_server():
+    """Newest server the Zed extension downloaded for itself, if any.
+
+    Following the documented install leaves nothing on PATH: the extension
+    keeps its download inside its own work directory. sw-action.py has the
+    same lookup, deliberately duplicated so each script stays runnable on its
+    own. Sorted by parsed version, since 0.3.9 beats 0.3.57 as a string.
+    """
+    import glob
+    import re as _re
+
+    roots = (
+        "~/Library/Application Support/Zed/extensions/work/shopware-lsp",
+        "~/.local/share/zed/extensions/work/shopware-lsp",
+        "~/AppData/Local/Zed/extensions/work/shopware-lsp",
+    )
+    found = []
+    for root in roots:
+        pattern = os.path.join(
+            os.path.expanduser(root), "shopware-lsp-*", "extension", "shopware-lsp*"
+        )
+        found += [
+            entry
+            for entry in glob.glob(pattern)
+            if os.path.basename(entry) in ("shopware-lsp", "shopware-lsp.exe")
+        ]
+
+    def version(path):
+        directory = os.path.basename(os.path.dirname(os.path.dirname(path)))
+        match = _re.search(r"shopware-lsp-(\d+(?:\.\d+)*)", directory)
+        return tuple(int(p) for p in match.group(1).split(".")) if match else (-1,)
+
+    return max(found, key=version) if found else None
+
+
 def server_binary():
     import shutil
 
@@ -57,10 +92,14 @@ def server_binary():
         os.environ.get("SHOPWARE_LSP_BIN"),
         shutil.which("shopware-lsp"),
         os.path.expanduser("~/.local/bin/shopware-lsp"),
+        zed_managed_server(),
     ):
         if candidate and os.path.isfile(candidate):
             return candidate
-    sys.exit("shopware-lsp not found; set SHOPWARE_LSP_BIN")
+    sys.exit(
+        "shopware-lsp not found. Set SHOPWARE_LSP_BIN, run update-server.sh, "
+        "or install the extension in Zed so it downloads one."
+    )
 
 
 def execute(binary, root, method, payload=None):

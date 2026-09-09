@@ -175,7 +175,18 @@ def zed_managed_servers():
             for entry in glob.glob(pattern)
             if os.path.basename(entry) in ("shopware-lsp", "shopware-lsp.exe")
         )
-    return sorted(found, reverse=True)
+    return sorted(found, key=download_version, reverse=True)
+
+
+def download_version(path):
+    """Version of a managed download, as numbers, from its directory name.
+
+    Sorting these as strings puts 0.3.9 above 0.3.57, and upstream is well
+    into the 0.3.50s. Unparseable names sort last rather than raising.
+    """
+    directory = os.path.basename(os.path.dirname(os.path.dirname(path)))
+    match = re.search(r"shopware-lsp-(\d+(?:\.\d+)*)", directory)
+    return tuple(int(part) for part in match.group(1).split(".")) if match else (-1,)
 
 
 def server_binary():

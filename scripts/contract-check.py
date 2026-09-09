@@ -367,6 +367,41 @@ def check_mcp(binary, root):
     process.kill()
 
 
+def zed_managed_server():
+    """Newest server the Zed extension downloaded for itself, if any.
+
+    Following the documented install leaves nothing on PATH: the extension
+    keeps its download inside its own work directory. sw-action.py has the
+    same lookup, deliberately duplicated so each script stays runnable on its
+    own. Sorted by parsed version, since 0.3.9 beats 0.3.57 as a string.
+    """
+    import glob
+    import re as _re
+
+    roots = (
+        "~/Library/Application Support/Zed/extensions/work/shopware-lsp",
+        "~/.local/share/zed/extensions/work/shopware-lsp",
+        "~/AppData/Local/Zed/extensions/work/shopware-lsp",
+    )
+    found = []
+    for root in roots:
+        pattern = os.path.join(
+            os.path.expanduser(root), "shopware-lsp-*", "extension", "shopware-lsp*"
+        )
+        found += [
+            entry
+            for entry in glob.glob(pattern)
+            if os.path.basename(entry) in ("shopware-lsp", "shopware-lsp.exe")
+        ]
+
+    def version(path):
+        directory = os.path.basename(os.path.dirname(os.path.dirname(path)))
+        match = _re.search(r"shopware-lsp-(\d+(?:\.\d+)*)", directory)
+        return tuple(int(p) for p in match.group(1).split(".")) if match else (-1,)
+
+    return max(found, key=version) if found else None
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -380,7 +415,17 @@ def main():
         "--binary",
         default=os.environ.get("SHOPWARE_LSP_BIN")
         or shutil.which("shopware-lsp")
-        or os.path.expanduser("~/.local/bin/shopware-lsp"),
+        or next(
+            (
+                path
+                for path in (
+                    os.path.expanduser("~/.local/bin/shopware-lsp"),
+                    zed_managed_server(),
+                )
+                if path and os.path.isfile(path)
+            ),
+            None,
+        ),
     )
     args = parser.parse_args()
 

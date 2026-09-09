@@ -302,6 +302,43 @@ class Parity(unittest.TestCase):
         self.assertIn(f"{len(sw.action_names())} in the action table", self.prose)
 
 
+class ManagedDownloads(unittest.TestCase):
+    """Picking the newest binary the extension downloaded for itself."""
+
+    def path(self, version):
+        return f"/x/shopware-lsp-{version}-darwin-arm64/extension/shopware-lsp"
+
+    def test_version_is_parsed_into_numbers(self):
+        self.assertEqual(sw.download_version(self.path("0.3.57")), (0, 3, 57))
+
+    def test_newest_wins_by_number_not_by_string(self):
+        names = [self.path(v) for v in ("0.3.9", "0.3.57", "0.3.100")]
+        self.assertEqual(max(names, key=sw.download_version), self.path("0.3.100"))
+        # What the old lexicographic sort did, and why this test exists:
+        # upstream is past 0.3.57, so "0.3.9" would have shadowed every
+        # release after it.
+        self.assertEqual(sorted(names, reverse=True)[0], self.path("0.3.9"))
+
+    def test_zed_managed_servers_returns_newest_first(self):
+        # Exercises the sort where it is actually used. Asserting on
+        # download_version alone passed even with the lexicographic sort
+        # restored, so it pinned nothing.
+        names = [self.path(v) for v in ("0.3.9", "0.3.100", "0.3.57")]
+        with mock.patch("glob.glob", side_effect=[names, [], []]):
+            self.assertEqual(sw.zed_managed_servers()[0], self.path("0.3.100"))
+
+    def test_zed_managed_servers_ignores_files_that_are_not_the_binary(self):
+        keep = self.path("0.1.0")
+        noise = "/x/shopware-lsp-0.9.0-darwin-arm64/extension/shopware-lsp.sha256"
+        with mock.patch("glob.glob", side_effect=[[noise, keep], [], []]):
+            self.assertEqual(sw.zed_managed_servers(), [keep])
+
+    def test_an_unparseable_directory_sorts_last_instead_of_raising(self):
+        self.assertEqual(sw.download_version("/x/odd/extension/shopware-lsp"), (-1,))
+        names = ["/x/odd/extension/shopware-lsp", self.path("0.0.1")]
+        self.assertEqual(max(names, key=sw.download_version), self.path("0.0.1"))
+
+
 class Picker(unittest.TestCase):
     """Labels come from server data and repeat, so picks resolve by position."""
 
