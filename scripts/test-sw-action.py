@@ -482,6 +482,52 @@ class PickLocation(unittest.TestCase):
             sw.pick_location([], "service", args)
 
 
+class WriteGuard(unittest.TestCase):
+    """checked_write_path / prepare_write refuse the two always-wrong shapes."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+
+    def test_rejects_an_unexpanded_tilde_component(self):
+        # The shape that actually happened: a task passed $ZED_FILE unexpanded,
+        # the server echoed the path back in a WorkspaceEdit, and makedirs
+        # built <root>/~/Users/... and wrote there. Note this path is *inside*
+        # the root, so the root check alone would let it through.
+        phantom = os.path.join(self.root, "~", "Users", "me", "buffer.twig")
+        with self.assertRaises(SystemExit) as caught:
+            sw.prepare_write(phantom, self.root)
+        self.assertIn("unexpanded", str(caught.exception))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "~")),
+                         "must not create the phantom tree before refusing")
+
+    def test_rejects_a_path_outside_the_root(self):
+        outside = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, outside)
+        with self.assertRaises(SystemExit) as caught:
+            sw.prepare_write(os.path.join(outside, "escaped.php"), self.root)
+        self.assertIn("outside the project root", str(caught.exception))
+
+    def test_rejects_traversal_back_out_of_the_root(self):
+        with self.assertRaises(SystemExit):
+            sw.prepare_write(os.path.join(self.root, "..", "escaped.php"), self.root)
+
+    def test_allows_a_path_inside_the_root_and_creates_parents(self):
+        target = os.path.join(self.root, "src", "Core", "Thing.php")
+        resolved = sw.prepare_write(target, self.root)
+        self.assertEqual(resolved, os.path.realpath(target))
+        self.assertTrue(os.path.isdir(os.path.dirname(resolved)))
+
+    def test_a_sibling_prefix_is_not_inside_the_root(self):
+        # os.path.commonpath, not startswith: "<root>-other" shares a string
+        # prefix with "<root>" but is a different directory.
+        sibling = self.root + "-other"
+        os.makedirs(sibling)
+        self.addCleanup(shutil.rmtree, sibling)
+        with self.assertRaises(SystemExit):
+            sw.prepare_write(os.path.join(sibling, "x.php"), self.root)
+
+
 class InsertUuid(unittest.TestCase):
     """run_uuid end to end, against real files in a temporary directory."""
 

@@ -288,6 +288,39 @@ def choose(options, prompt, multi):
     return [options[index] for index in choose_indexes(options, prompt, multi)]
 
 
+def checked_write_path(path, root, action="write"):
+    """Resolve a path for writing, refusing two shapes that are always wrong.
+
+    A `~` path component means a tilde was never expanded. That is not
+    hypothetical: these paths arrive from WorkspaceEdit URIs the server echoes
+    back from what we sent it, so a bad path we produced comes straight back as
+    an instruction. Before this check, `makedirs` cheerfully built
+    `<root>/~/Users/...` and wrote there, and the task reported success having
+    touched nothing the user could see.
+
+    Anything resolving outside the project root is refused too. Those URIs are
+    the server's word for where a file belongs, and nothing it can legitimately
+    ask for lives outside the worktree.
+    """
+    if "~" in path.replace("\\", "/").split("/"):
+        sys.exit(f"refusing to {action} a path with an unexpanded '~': {path}")
+    resolved = os.path.realpath(path)
+    base = os.path.realpath(root)
+    if resolved != base and os.path.commonpath([resolved, base]) != base:
+        sys.exit(
+            f"refusing to {action} outside the project root:\n"
+            f"  path: {resolved}\n  root: {base}"
+        )
+    return resolved
+
+
+def prepare_write(path, root, action="write"):
+    """`checked_write_path`, plus the parent directories it is allowed to make."""
+    target = checked_write_path(path, root, action)
+    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+    return target
+
+
 def relative(path, root):
     try:
         return os.path.relpath(path, root)
@@ -667,7 +700,7 @@ def apply_workspace_edit(edit, dry_run, root):
             end = offset(updated, entry["range"]["end"])
             updated = updated[:start] + entry.get("newText", "") + updated[end:]
         if not dry_run:
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            path = prepare_write(path, root)
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write(updated)
         touched.append((path, f"{len(ordered)} edit(s), {len(updated) - len(existing):+d} bytes"))
@@ -684,19 +717,19 @@ def apply_workspace_edit(edit, dry_run, root):
             path = uri_to_path(change.get("uri", ""))
             if kind == "create":
                 if not dry_run:
-                    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                    path = prepare_write(path, root, "create")
                     if not os.path.exists(path):
                         open(path, "w", encoding="utf-8").close()
                 touched.append((path, "create"))
             elif kind == "delete":
                 if not dry_run and os.path.exists(path):
-                    os.remove(path)
+                    os.remove(checked_write_path(path, root, "delete"))
                 touched.append((path, "delete"))
             elif kind == "rename":
                 target = uri_to_path(change.get("newUri", ""))
                 if not dry_run and os.path.exists(path):
-                    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-                    os.rename(path, target)
+                    checked_write_path(path, root, "rename")
+                    os.rename(path, prepare_write(target, root, "rename"))
                 touched.append((target, "rename"))
     else:
         for uri, edits in (edit.get("changes") or {}).items():
@@ -765,7 +798,7 @@ def run_scaffold(args, binary):
             print(f"  would write {relative(path, args.root)}")
             print(content[:400] + ("..." if len(content) > 400 else ""))
             return
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        path = prepare_write(path, args.root)
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(content)
         print(f"  wrote {relative(path, args.root)}")
@@ -874,7 +907,7 @@ def run_compiler_pass(args, binary):
     verb = "would write" if args.print_only else "wrote"
     for target, content in writes:
         if not args.print_only:
-            os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+            target = prepare_write(target, args.root)
             with open(target, "w", encoding="utf-8") as handle:
                 handle.write(content)
         print(f"  {verb} {relative(target, args.root)}  ({len(content)} bytes)")
@@ -1196,7 +1229,7 @@ def run_config_open(args, binary):
         print(CONFIG_TEMPLATE, end="")
         return
     else:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        path = prepare_write(path, args.root, "create")
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(CONFIG_TEMPLATE)
         print(f"created {relative(path, args.root)}")
