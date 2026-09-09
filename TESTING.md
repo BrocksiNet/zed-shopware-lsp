@@ -333,13 +333,20 @@ server. Re-run `zed: install dev extension` first.
       `$ZED_COLUMN` next to the insertion point each candidate reading implies
       settles it in one run.
 
-      Two things about Zed tasks that cost time here. Zed joins `command` and
-      `args` into a single string and runs it through `/bin/zsh -i -c`, so
-      arguments are word-split and globbed: an inline `python3 -c` snippet dies
-      on its parentheses, and a `$ZED_FILE` containing a space would break
-      every task in `examples/tasks.json`. And with autosave on, a stale buffer
-      can write back over what the task just wrote, so read the file from disk
-      rather than trusting the buffer.
+      Read the reported path, not just the position. It should be relative
+      (`.zed/scratch.txt`). A `~/...` path means the write went to a phantom
+      tree: before the `expanduser` fix, the six
+      `os.makedirs(os.path.dirname(path), exist_ok=True)` call sites in
+      `sw-action.py` happily created `<worktree>/~/Users/...` and wrote there,
+      so a task could report success having touched nothing you can see. Check
+      that `<worktree>/~` does not exist after a run. Verifying from the buffer
+      hides this entirely, because Zed shows the file it thinks is open.
+
+      Zed also joins a task's `command` and `args` into a single string and
+      runs it through `/bin/zsh -i -c`, so arguments are word-split and
+      globbed: an inline `python3 -c` snippet dies on its parentheses, and a
+      `$ZED_FILE` containing a space would break every task in
+      `examples/tasks.json`.
 
 ## Fixtures worth knowing about
 
