@@ -581,6 +581,7 @@ was found.
 | `docs/` | Markdown and JSON schema shown in Zed's context-server UI, embedded via `include_str!` |
 | `scripts/contract-check.py` | Verifies assumptions about Open VSX and the server binary |
 | `build-server.sh` | Builds the server from `main`, for fixes that have merged but not shipped. Needs Go and CGO |
+| `install-tasks.sh` | Installs the generator tasks into `~/.config/zed/tasks.json`, pointing at this checkout. `--keymap` merges bindings too |
 | `update-server.sh` | Installs the published server into `~/.local/bin` |
 | `AGENTS.md` | Architecture, constraints, and conventions for contributors and agents |
 | `TESTING.md` | The three-layer test plan and the manual Zed checklist |
@@ -594,12 +595,35 @@ runs the picker in a terminal and writes the result, so a Zed task gives you
 the same outcome:
 
 ```bash
-cp scripts/sw-action.py /path/to/project/.zed/
-cp examples/tasks.json  /path/to/project/.zed/
+./install-tasks.sh            # tasks into ~/.config/zed/tasks.json
+./install-tasks.sh --keymap   # also merge the key bindings
+./install-tasks.sh --print    # show what would change, write nothing
 ```
 
-Then `task: spawn`, or bind keys with `examples/keymap.json`. It uses `fzf`
-when installed and falls back to a numbered prompt.
+Reload the window, then `task: spawn` and type *sho*. It uses `fzf` when
+installed and falls back to a numbered prompt.
+
+The tasks install at user level, not per project, because none of them needs
+anything project-specific: Zed sets `$ZED_WORKTREE_ROOT` per window and
+`sw-action.py` defaults its root to that, so one definition serves every
+project you open. They point at `scripts/sw-action.py` inside this checkout,
+so `git pull` here updates every project at once.
+
+That means **moving or deleting this checkout breaks all 22 tasks**, with the
+same symptom as any other task misconfiguration: `task: spawn` runs and
+nothing happens. The clone already has to stay put for the dev extension, so
+this is not a new constraint, just a second thing depending on it.
+
+Re-running updates in place. Entries labelled `Shopware: ...` are replaced;
+anything else in your `tasks.json` is kept, and the previous file is backed up.
+
+The trade-off is that all 22 appear in `task: spawn` for every project, Rust
+and Node included. They filter out by typing *sho*, and outside a Shopware or
+Symfony project they fail cleanly because the server refuses to start. To scope
+them to one project instead, use the old layout -- copy `scripts/sw-action.py`
+and `examples/tasks.json` into `<project>/.zed/`, where the tasks' original
+`$ZED_WORKTREE_ROOT/.zed/sw-action.py` path applies. Note that `.zed/` is
+gitignored in `shopware/shopware`, so such a copy goes stale invisibly.
 
 Task labels are verb-first, so `task: spawn` narrows by intent: type *go* for
 navigation, *insert* or *create* for the generators, *show* for the read-only

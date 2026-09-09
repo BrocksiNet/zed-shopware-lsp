@@ -685,6 +685,16 @@ class Examples(unittest.TestCase):
             action = task["args"][1]
             self.assertIn(action, known, task["label"])
 
+    def test_every_task_starts_its_args_with_the_script_placeholder(self):
+        # install-tasks.sh rewrites args[0] to an absolute path in the
+        # checkout, and refuses to guess if it finds anything else there. It
+        # would fail at someone's install; fail here instead. args[1] being the
+        # action, asserted above, depends on the same position.
+        for task in self.tasks:
+            self.assertEqual(
+                task["args"][0], "$ZED_WORKTREE_ROOT/.zed/sw-action.py", task["label"]
+            )
+
     def test_tasks_touching_a_file_declare_a_save_strategy(self):
         # sw-action.py reads the file from disk, so an unsaved buffer is stale.
         # Whether a task needs the flush depends on the action, which the test
