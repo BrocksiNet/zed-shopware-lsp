@@ -143,7 +143,7 @@ equivalent of the VS Code extension's `yamlValidation`:
       "settings": {
         "yaml": {
           "schemas": {
-            "https://raw.githubusercontent.com/shopware/shopware-lsp/feat/next-gen/internal/projectconfig/schema.json": [
+            "https://raw.githubusercontent.com/shopware/shopware-lsp/main/internal/projectconfig/schema.json": [
               ".config/shopware/lsp.yaml"
             ]
           }
@@ -415,7 +415,7 @@ does.
 ### Diagnostics that are plainly wrong, on code that is fine
 
 A merged fix that has not been published yet. Open VSX is the extension's only
-source, and it lags `feat/next-gen`. On 2026-09-09 the published 0.3.53 read
+source, and it lags `main`. On 2026-09-09 the published 0.3.53 read
 every PHPStan `@template T` as an empty Symfony `@Template`, so
 `Collection.php` in Shopware core showed five "Template not found" errors that
 did not exist. The fix had merged six hours earlier.
@@ -423,7 +423,7 @@ did not exist. The fix had merged six hours earlier.
 Check whether the branch is ahead of what you are running:
 
 ```bash
-./build-server.sh          # prints both, builds feat/next-gen into ~/.local/bin
+./build-server.sh          # prints both, builds main into ~/.local/bin
 ```
 
 Then point Zed at it, in `settings.json`:
@@ -561,7 +561,7 @@ was found.
 | `src/lib.rs` | The entire extension. Pure helpers, then `impl zed::Extension`, then unit tests |
 | `docs/` | Markdown and JSON schema shown in Zed's context-server UI, embedded via `include_str!` |
 | `scripts/contract-check.py` | Verifies assumptions about Open VSX and the server binary |
-| `build-server.sh` | Builds the server from `feat/next-gen`, for fixes that have merged but not shipped. Needs Go and CGO |
+| `build-server.sh` | Builds the server from `main`, for fixes that have merged but not shipped. Needs Go and CGO |
 | `update-server.sh` | Installs the published server into `~/.local/bin` |
 | `AGENTS.md` | Architecture, constraints, and conventions for contributors and agents |
 | `TESTING.md` | The three-layer test plan and the manual Zed checklist |

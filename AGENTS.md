@@ -91,7 +91,7 @@ impossible here.
 | `inventory/parity.json` | A decision for every upstream palette and client command: the action covering it, or why none does. Drives the README's parity counts. |
 | `examples/` | `tasks.json`, `keymap.json`, `settings.json` to copy into a project. |
 | `snippets/` | Ported from upstream `vscode-extension/snippets` (MIT). Zed matches by lowercase language name, so `config-xml.json` is `xml.json` here. VS Code syntax carries over unchanged, including `${1\|a,b\|}` choice placeholders. |
-| `build-server.sh` | Builds `feat/next-gen` from a local `shopware-lsp` checkout into `~/.local/bin`, for fixes that merged but have not shipped. Builds from a throwaway worktree at the fetched commit, never the working tree. Needs Go and CGO. |
+| `build-server.sh` | Builds `main` from a local `shopware-lsp` checkout into `~/.local/bin`, for fixes that merged but have not shipped. Builds from a throwaway worktree at the fetched commit, never the working tree. Needs Go and CGO. |
 | `update-server.sh` | Installs the published server into `~/.local/bin`. |
 | `TESTING.md` | The three-layer test plan and the manual Zed checklist. |
 
@@ -148,10 +148,14 @@ registry.
 
 ## Upstream facts that are easy to get wrong
 
-- **The 0.3.x server source lives on the `feat/next-gen` branch** of
-  `shopware/shopware-lsp`, not `main`. `main` is months behind and has no
-  semantic tokens, MCP, or inlay hints.
-- **Open VSX lags `feat/next-gen`, and that shows up as false diagnostics.**
+- **The 0.3.x server source is on `main`.** It used to live only on
+  `feat/next-gen`, with `main` months behind and carrying no semantic tokens,
+  MCP or inlay hints. As of 2026-09-09 both refs point at the same commit and
+  pull requests merge into `main`; `feat/next-gen` still exists, so
+  `BRANCH=feat/next-gen build-server.sh` remains the fallback if that changes.
+  Note that a single-branch clone has no `origin/feat/next-gen` tracking ref,
+  which makes the branch look deleted when it is not.
+- **Open VSX lags `main`, and that shows up as false diagnostics.**
   Releases land every few days, so the gap is small but real: 0.3.53 read
   every PHPStan `@template` as an empty Symfony `@Template` for two days after
   the fix merged. `build-server.sh` is the escape hatch. Do not put the build

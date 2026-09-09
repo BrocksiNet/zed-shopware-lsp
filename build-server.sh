@@ -6,10 +6,13 @@
 # every few days. Build only when you need a fix that has merged but has not
 # shipped yet, and drop the pin again once it has.
 #
-# The 0.3.x source lives on feat/next-gen. main is months behind and has no
-# semantic tokens, MCP, or inlay hints.
+# The 0.3.x source is on main. It used to live only on feat/next-gen, with main
+# months behind and carrying no semantic tokens, MCP or inlay hints; as of
+# 2026-09-09 both refs point at the same commit and PRs merge into main.
+# feat/next-gen still exists, so BRANCH=feat/next-gen keeps working if that
+# changes again.
 #
-#   ./build-server.sh                       # feat/next-gen head
+#   ./build-server.sh                       # main head
 #   BRANCH=fix/something ./build-server.sh  # another branch
 #   DEST=/somewhere ./build-server.sh
 #
@@ -21,7 +24,7 @@
 set -euo pipefail
 
 SRC="${SRC:-$HOME/Documents/Projects/shopware-lsp}"
-BRANCH="${BRANCH:-feat/next-gen}"
+BRANCH="${BRANCH:-main}"
 DEST="${DEST:-$HOME/.local/bin}"
 
 [ -d "$SRC/.git" ] || {
