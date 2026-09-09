@@ -729,3 +729,13 @@ shopware-lsp -root . codeaction -kind source.organizeImports -exec -d FILE:1:1
 
 Making those quickfixes work in any generic client needs a server-side change:
 either a standard `edit`, or `resolveProvider: true` plus `codeAction/resolve`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+The snippets under `snippets/` are ported from
+[shopware/shopware-lsp](https://github.com/shopware/shopware-lsp)
+(`vscode-extension/snippets`), which is MIT licensed and copyright Shopware
+Contributors. The language server itself is downloaded at runtime and is not
+bundled here, so its license is upstream's.

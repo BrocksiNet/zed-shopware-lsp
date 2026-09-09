@@ -1,6 +1,6 @@
 id = "shopware-lsp"
 name = "Shopware LSP"
-version = "0.0.1"
+version = "0.1.0"
 schema_version = 1
 authors = ["b.meyer <b.meyer@shopware.com>"]
 description = "Shopware Language Server support for Zed (wraps the shopware-lsp binary)"
