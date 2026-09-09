@@ -501,6 +501,54 @@ class InsertUuid(unittest.TestCase):
             sw.run_uuid(args, None)
         return path.read_text(encoding="utf-8"), stdout.getvalue()
 
+    def run_main(self, argv, home):
+        """Drive main() rather than run_uuid, so argument handling is covered.
+
+        The tilde bug lived in main(): every other test here builds a
+        Namespace by hand and so could never see it. server_binary() runs
+        before the uuid dispatch, hence SHOPWARE_LSP_BIN.
+        """
+        stdout = io.StringIO()
+        with mock.patch.dict(
+            os.environ, {"HOME": home, "SHOPWARE_LSP_BIN": sys.executable}
+        ), mock.patch.object(sys, "argv", ["sw-action.py", *argv]):
+            with contextlib.redirect_stdout(stdout):
+                sw.main()
+        return stdout.getvalue()
+
+    def test_expands_a_tilde_in_the_target_path(self):
+        # Zed passes $ZED_FILE as ~/... . os.path.abspath does not expand `~`,
+        # so it joined the value onto the working directory and every task
+        # taking $ZED_FILE died with "not a file: <worktree>/~/Users/...".
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory)
+        target = pathlib.Path(directory) / "buffer.twig"
+        target.write_text("hello\n", encoding="utf-8")
+
+        output = self.run_main(["uuid", "~/buffer.twig", "1"], directory)
+
+        self.assertRegex(target.read_text(encoding="utf-8"), r"^" + self.HEX + r"hello\n$")
+        self.assertIn("inserted", output)
+
+    def test_expands_a_tilde_in_the_root_path(self):
+        # $ZED_WORKTREE_ROOT can be abbreviated the same way, and --root is
+        # what every relative() call reports against.
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory)
+        target = pathlib.Path(directory) / "buffer.twig"
+        target.write_text("hello\n", encoding="utf-8")
+
+        output = self.run_main(
+            ["uuid", str(target), "1", "--root", "~"], directory
+        )
+
+        # relpath against an unexpanded "~" does not raise, it just walks out
+        # of <cwd>/~ with a pile of "..", so assert the reported path is the
+        # clean relative one. Merely checking for the absence of "~" passes
+        # either way, which is how the first version of this test was useless.
+        self.assertIn(" at buffer.twig:", output)
+        self.assertNotIn("..", output)
+
     def test_inserts_on_the_final_blank_line(self):
         # splitlines drops the empty segment after a trailing newline. Without
         # it the row clamp walks back a line and appends to "hello" instead.

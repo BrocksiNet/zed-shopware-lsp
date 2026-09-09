@@ -1332,6 +1332,16 @@ def main():
     )
     args = parser.parse_args()
 
+    # Zed hands over a tilde-abbreviated path in `$ZED_FILE`, and
+    # `$ZED_WORKTREE_ROOT` can be one too. `os.path.abspath` does not expand
+    # `~`, so it treats the whole value as relative and joins it onto the
+    # working directory, yielding `<worktree>/~/Users/...` and "not a file".
+    # Normalising here covers every action, since they all reach the
+    # filesystem through `args.target` and `args.root`.
+    if args.target:
+        args.target = os.path.expanduser(args.target)
+    args.root = os.path.expanduser(args.root)
+
     if args.action == "list":
         for name in sorted(SNIPPET_ACTIONS):
             print(f"  {name:20} {SNIPPET_ACTIONS[name]['label']}")
