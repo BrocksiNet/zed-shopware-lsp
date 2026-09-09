@@ -377,6 +377,13 @@ fn mcp_root(configured: Option<&str>, cached: Option<String>) -> Option<String> 
 /// Only a path *with* arguments is treated as a full override; a bare path
 /// still goes through resolution so it keeps the `-root ... mcp` arguments the
 /// server needs rather than being spawned bare.
+///
+/// That only holds when this hook runs at all. Observed on Zed 1.18, any
+/// `command` block in `context_servers.shopware-lsp` makes Zed treat the entry
+/// as a complete custom-server definition and skip `context_server_command`
+/// entirely, so a bare path is spawned bare by Zed and the MCP handshake times
+/// out after 30s. The fallback below cannot rescue it, which is why the docs
+/// tell users to pass `args` whenever they pass `path`.
 fn command_override(
     path: Option<String>,
     arguments: Option<Vec<String>>,

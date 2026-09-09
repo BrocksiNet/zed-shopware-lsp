@@ -60,7 +60,15 @@ echo
 echo "Open VSX publishes $PUBLISHED. Once it catches up, remove the pin below"
 echo "and let the extension manage the binary again."
 echo
-echo "  lsp.shopware-lsp.binary.path        -> $DEST/shopware-lsp"
-echo "  context_servers.shopware-lsp.command -> $DEST/shopware-lsp"
+echo "  lsp.shopware-lsp.binary.path -> $DEST/shopware-lsp"
 echo
-echo "Set both, or the editor and the Agent Panel answer from different builds."
+echo "For the Agent Panel, the language server's choice carries over only if"
+echo "it started first. To pin it, set the command WITH arguments:"
+echo
+echo "  context_servers.shopware-lsp.command = {"
+echo "    \"path\": \"$DEST/shopware-lsp\","
+echo "    \"args\": [\"-root\", \"/path/to/shopware\", \"mcp\"]"
+echo "  }"
+echo
+echo "Omitting args spawns the binary bare, which is a language server being"
+echo "asked to speak MCP: it times out after 30s with no useful error."

@@ -28,15 +28,24 @@
   },
   "context_servers": {
     "shopware-lsp": {
-      // Pin the binary for the Agent Panel. The extension sandbox has no PATH
-      // and sees only its own work directory, so the MCP server cannot find a
-      // locally built or locally installed server on its own; without this it
-      // uses the managed download and answers from a different build than the
-      // editor. Leave it out if you are happy with the download.
-      "command": { "path": "/Users/you/.local/bin/shopware-lsp" },
       // Only needed for multi-root workspaces, or if the Agent Panel starts
-      // before you open a PHP or Twig file.
+      // before you open a PHP or Twig file. Read only while "command" below
+      // is absent.
       "settings": { "root": "/path/to/shopware" }
+
+      // To force a specific binary for the Agent Panel -- a local build, say,
+      // since the extension sandbox has no PATH and sees only its own work
+      // directory -- uncomment this. "args" is mandatory: Zed treats a present
+      // "command" as a complete custom-server definition and never calls the
+      // extension, so the binary is spawned bare, which is a language server
+      // being asked to speak MCP. It fails with a 30 second timeout and no
+      // useful error. "mcp" must come last. Doing this also makes the "root"
+      // setting above dead config, hence -root here.
+      //
+      // "command": {
+      //   "path": "/Users/you/.local/bin/shopware-lsp",
+      //   "args": ["-root", "/path/to/shopware", "mcp"]
+      // }
     }
   },
   "languages": {
