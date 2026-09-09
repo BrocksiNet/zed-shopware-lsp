@@ -218,25 +218,82 @@ Nothing here is automatable: it needs a running Zed with a UI.
 Run after touching `extension.toml`, the resolution order, or the context
 server. Re-run `zed: install dev extension` first.
 
-- [ ] Open a PHP file in a Shopware project. `debug: open language server logs`
+- [x] Open a PHP file in a Shopware project. `debug: open language server logs`
       shows `shopware-lsp` running, no initialize error.
-- [ ] Completion, hover, and go-to-definition respond.
-- [ ] Diagnostics appear (unused imports are a reliable source).
-- [ ] `editor: toggle code actions` on a PHP file offers `Organize Imports`,
-      and applying it removes the unused imports.
-- [ ] On an unused-import diagnostic, the `Remove unused import '...'` quickfix
+- [x] Completion, hover, and go-to-definition respond. Test completion
+      separately from the other two: hover and go-to-definition passed while
+      every completion was being discarded client-side, so a working hover
+      says nothing about completion. Cross-check against the server's own CLI,
+      which takes the editor out of the loop:
+      `shopware-lsp -root <project> completion <file>:<line>:<col>`, with the
+      cursor inside the string of `Feature::isActive('')`. If that returns
+      items and Zed shows none, the response is being rejected, not missed --
+      `~/Library/Logs/Zed/Zed.log` names the field. Confirmed 2026-09-09, but
+      only against a locally patched server: 0.3.57 emits
+      `documentation:{"kind":""}` on every undocumented item, which is not a
+      valid `MarkupKind`, so Zed drops the whole list. Fixed upstream in
+      shopware/shopware-lsp#65.
+- [x] Diagnostics appear (unused imports are a reliable source). Expect no
+      squiggle: `inspections/php_imports.go` sends unused imports as severity
+      Hint tagged Unnecessary, which Zed renders as faded text, so the import
+      just looks dimmer than its neighbours. Hover names the rule
+      (`shopware-php php.unusedImport`). Turn on `diagnostics.inline` if that
+      is too subtle. Confirmed 2026-09-09.
+- [x] `editor: toggle code actions` on a PHP file offers `Organize Imports`,
+      and applying it removes the unused imports. Check the menu holds no
+      duplicates while you are there; two entries means a second PHP server is
+      enabled via the `"..."` wildcard. Confirmed 2026-09-09.
+- [x] On an unused-import diagnostic, the `Remove unused import '...'` quickfix
       applies. This exercises the `codeAction/resolve` round trip, which only
-      works while Zed preserves the diagnostic `data` field.
-- [ ] Open a `.twig` file with the Twig extension installed and confirm the
-      server attaches to it.
-- [ ] With no `shopware-lsp` on `PATH` and no `binary.path`, the download runs
+      works while Zed preserves the diagnostic `data` field. Confirmed
+      2026-09-09; the server's `data` carries a `validated-workspace-edit-v1`
+      digest, so a silent no-op here shows up as a `codeAction/resolve` error
+      in `~/Library/Logs/Zed/Zed.log` rather than a missing menu entry.
+- [x] Open a `.twig` file with the Twig extension installed and confirm the
+      server attaches to it. Check the status bar reads exactly `Twig`:
+      `extension.toml` keys on Zed's language *name*, so a different name
+      means the server silently never attaches and no log says why. Stronger
+      than attachment is that it indexed: `{% sw_include '' %}` should offer
+      bundle-namespaced template paths (`@Storefront/...`, `@Framework/...`)
+      from the template index. Confirmed 2026-09-09. Hover on a block in a
+      core template reports `No resolvable upstream block`, which is correct
+      -- there is no upstream to resolve unless the file is an override.
+- [x] With no `shopware-lsp` on `PATH` and no `binary.path`, the download runs
       and Zed shows the install status. Delete the extension work dir to retest.
-- [ ] Agent Panel lists the `shopware-lsp` context server and a Shopware tool
-      call returns real results.
-- [ ] The Agent Panel and the editor agree on the binary. `ps | grep shopware-lsp`
+      Confirmed 2026-09-09 on 0.3.57: the log's `Binary:` line named the work
+      directory, so the order did fall through, and only the new version dir
+      was left behind.
+- [x] Agent Panel lists the `shopware-lsp` context server and a Shopware tool
+      call returns real results. Confirmed 2026-09-09:
+      `shopware_workspace_symbols` found `ProductEntity` at
+      `src/Core/Content/Product/ProductEntity.php:44` with the right
+      namespace, and `shopware_diagnostics` answered for the same file. Note
+      that Zed's Agent Panel passes extension-contributed MCP servers to
+      external agents too, so a Claude Code thread in the panel is a valid
+      client for this check. Each thread spawns its own server, each with its
+      own index and no sharing: eight of them on a shopware/shopware checkout
+      measured 2.0 GB resident in total, several at 300-400 MB each.
+- [x] The Agent Panel and the editor agree on the binary. `ps | grep shopware-lsp`
       should show both the language server and the `mcp` process on the same
       path. They diverged once, with the editor on `PATH` and the agent on the
       managed download, so the agent was answering from a different build.
+      Confirmed 2026-09-09, but only after two failures worth reproducing:
+
+      1. `lsp.shopware-lsp.binary.path` alone is not enough. The carry-over
+         through `cached_binary_path` needs the language server to have
+         started first, and it had not, so the agent stayed on the managed
+         download while the editor ran the local build.
+      2. `context_servers.shopware-lsp.command.path` **without** `args` is
+         worse. Zed treats a present `command` as a full custom-server
+         definition and never calls `context_server_command`, so `mcp_args`
+         never runs and the binary is spawned bare -- a stdio LSP process that
+         never answers an MCP `initialize`, failing with a 30s timeout and no
+         useful error. It also makes the process indistinguishable from the
+         language server in `ps`, which defeats this check. Pass
+         `args: ["-root", "<project>", "mcp"]`, with `mcp` last.
+
+      Distinguish the two lanes by parent process: the language server's
+      parent is `zed`, an agent's MCP server is parented by the agent.
 - [x] Snippets load: typing `sw-config-` in an XML buffer offers all six
       `sw-config-*` entries with their descriptions, and accepting one expands
       it. Confirmed 2026-09-07.
