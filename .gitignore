@@ -5,3 +5,4 @@ __pycache__/
 mutants/
 .mutmut-cache
 .pytest_cache/
+.DS_Store

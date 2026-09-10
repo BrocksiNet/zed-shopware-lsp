@@ -86,8 +86,8 @@ treats `examples/` as code, because it is what people copy:
 * Every task passing `$ZED_FILE` declares a `save` strategy, and every task
   names an action the script actually has.
 * `inventory/parity.json` is self-consistent: every entry either names an
-  action the script has or explains the gap, every gap appears in the README's
-  table, and the README's counts are the ones the map implies. That last check
+  action the script has or explains the gap, every gap appears in the table in
+  `docs/vscode-parity.md`, and that doc's counts are the ones the map implies. That last check
   is the one that would have caught "23 palette commands, 13 equivalents",
   where the numbers came from two different lists.
 * The picker resolves a selection by position, under both fzf and the

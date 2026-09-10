@@ -27,7 +27,7 @@ impossible here.
 - **`zed::Command` has no working-directory field**, so Zed runs the server in
   the worktree root. If that directory is deleted, `spawn` fails with ENOENT
   naming the *program*, because the OS reports a missing cwd identically. The
-  extension cannot detect or prevent it; see the README troubleshooting entry.
+  extension cannot detect or prevent it; see `docs/troubleshooting.md`.
 - **`Project` exposes `worktree_ids()` but no paths**, and `zed::Command` has no
   working-directory field. Only `language_server_command` receives a
   `Worktree`, which is why the project root is cached from there for the MCP
@@ -88,16 +88,25 @@ impossible here.
 | `scripts/sw-action.py` | Runs picker-based generator actions from a Zed task, since they cannot be code actions. |
 | `scripts/inventory.py` | Golden-file gate that reports new or removed upstream surface. |
 | `inventory/snapshot.json` | The accepted upstream surface. Update deliberately, never blindly. |
-| `inventory/parity.json` | A decision for every upstream palette and client command: the action covering it, or why none does. Drives the README's parity counts. |
+| `inventory/parity.json` | A decision for every upstream palette and client command: the action covering it, or why none does. Drives the counts in `docs/vscode-parity.md`. |
 | `examples/` | `tasks.json`, `keymap.json`, `settings.json` to copy into a project. |
 | `snippets/` | Ported from upstream `vscode-extension/snippets` (MIT). Zed matches by lowercase language name, so `config-xml.json` is `xml.json` here. VS Code syntax carries over unchanged, including `${1\|a,b\|}` choice placeholders. |
 | `build-server.sh` | Builds `main` from a local `shopware-lsp` checkout into `~/.local/bin`, for fixes that merged but have not shipped. Builds from a throwaway worktree at the fetched commit, never the working tree. Needs Go and CGO. |
 | `install-tasks.sh` | Generates `~/.config/zed/tasks.json` from `examples/tasks.json`, rewriting the script path to this checkout so a `git pull` updates every project. Merges rather than clobbers: entries labelled `Shopware: ...` are managed, anything else in the file is kept. Verified against Zed 1.18, which reads user-level tasks from the config directory. |
 | `update-server.sh` | Installs the published server into `~/.local/bin`. |
-| `TESTING.md` | The three-layer test plan and the manual Zed checklist. |
+| `TESTING.md` | The four-layer test plan and the manual Zed checklist. |
+| `docs/features.md` | Every feature with screenshots, and where each one stops. |
+| `docs/tasks.md` | The generator actions, the action table, and `install-tasks.sh`. |
+| `docs/agent-panel.md` | MCP tools, and the `command`/`settings.root` interaction. |
+| `docs/settings.md` | Every setting and environment variable. |
+| `docs/troubleshooting.md` | Symptoms, causes, fixes. |
+| `docs/vscode-parity.md` | The command-by-command comparison. Its tables are asserted against `inventory/parity.json`. |
+| `docs/internals.md` | Server resolution, repository layout, limitations. |
+| `docs/images/` | Screenshots referenced by the docs. |
 
-Editing `docs/*` changes compiled output, because those files are embedded.
-Rebuild after touching them.
+Only `docs/mcp-instructions.md` and `docs/mcp-settings-schema.json` are
+embedded with `include_str!`; editing those changes compiled output and needs
+a rebuild. The rest of `docs/` is ordinary prose and does not.
 
 ## The testability rule
 
@@ -209,7 +218,9 @@ registry.
 ## Conventions
 
 - Conventional commits with a type, e.g. `feat:`, `fix:`, `test:`, `docs:`.
-- No changelog files. The README and `TESTING.md` are the documentation.
+- No changelog files. The README, `docs/` and `TESTING.md` are the
+  documentation. The README is the user-facing entry point: keep detail in
+  `docs/` and link to it rather than growing the landing page back.
 - Comments explain *why*, especially where behaviour looks arbitrary but
   encodes an external constraint (argument order, the `extension/` prefix, the
   resolution order). Do not add comments that restate the code.
@@ -231,8 +242,8 @@ registry.
   test asserted at an offset where the correct and the off-by-one version
   agree.
 - **Parity numbers are derived, not written.** `inventory/parity.json` holds a
-  decision for every palette and client command, and the README's Command
-  parity section restates its counts. A command is `action` only when the
+  decision for every palette and client command, and `docs/vscode-parity.md`
+  restates its counts. A command is `action` only when the
   action does the whole job; add `partial` with what is missing otherwise, and
   a partial counts as a gap. An action with no upstream counterpart goes in
   `standalone`. Mapping one to a loose match to make a number look better is

@@ -20,7 +20,8 @@ Three categories are not:
   and nothing will tell us unless we look;
 * a **removed or renamed** command breaks an action we already ship;
 * a new **palette or client command** changes how complete this extension is,
-  and the README's parity counts silently go stale. They did: the table
+  and the parity counts in docs/vscode-parity.md silently go stale. They
+  did: the table
   compared the client-command count against the palette's coverage for
   several releases.
 
@@ -230,7 +231,7 @@ def palette_commands(extension_dir):
     """Command ids the VS Code extension puts in the palette.
 
     Not the same list as the server's clientCommands, which are almost all
-    attached to code actions. Conflating the two is how the README came to
+    attached to code actions. Conflating the two is how the docs came to
     compare one list's size against the other's coverage.
 
     Read from a local unzipped vsix when given one, since CI already downloads
@@ -404,7 +405,7 @@ def main():
             "Scaffolds and MCP tools are absorbed automatically.\n"
             "A new server command may be a generator worth adding to sw-action.py.\n"
             "A new palette or client command needs an inventory/parity.json entry,\n"
-            "and the README counts move with it; test-sw-action.py checks that.\n"
+            "and docs/vscode-parity.md moves with it; test-sw-action.py checks.\n"
             "Once reviewed, re-run with --write and commit the snapshot."
         )
 

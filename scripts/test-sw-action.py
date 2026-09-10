@@ -162,9 +162,15 @@ class Parity(unittest.TestCase):
         self.parity = json.loads((ROOT / "inventory" / "parity.json").read_text())
         self.groups = {key: self.parity[key] for key in ("palette", "clientCommands")}
         self.standalone = self.parity["standalone"]
-        self.readme = (ROOT / "README.md").read_text()
+        # The parity tables moved out of the README into their own doc when the
+        # README was made user-facing. These assertions follow the tables, not
+        # the filename: pointing them back at README.md would make every one of
+        # them pass without checking anything.
+        self.readme = (ROOT / "docs" / "vscode-parity.md").read_text()
+        self.tasks_doc = (ROOT / "docs" / "tasks.md").read_text()
         # Prose wraps, so compare against a single-spaced form.
         self.prose = re.sub(r"\s+", " ", self.readme)
+        self.tasks_prose = re.sub(r"\s+", " ", self.tasks_doc)
 
     def entries(self):
         for group, commands in self.groups.items():
@@ -252,7 +258,8 @@ class Parity(unittest.TestCase):
 
     def action_table(self):
         """Rows of the action table, which is not the only table of actions."""
-        lines = self.readme.splitlines()
+        # This table lives with the tasks, not with the parity comparison.
+        lines = self.tasks_doc.splitlines()
         header = lines.index("| Action | What it does | Status |")
         rows = []
         for line in lines[header + 2 :]:
@@ -287,7 +294,10 @@ class Parity(unittest.TestCase):
 
     def test_the_readme_states_how_many_tasks_expose_them(self):
         tasks = load_jsonc("examples/tasks.json")
-        self.assertIn(f"{len(tasks)} tasks", self.prose)
+        # Asserted against the tasks doc, which is where the claim belongs.
+        # The parity doc happens to repeat the number, so checking there
+        # would pass for the wrong reason.
+        self.assertIn(f"{len(tasks)} tasks", self.tasks_prose)
 
     def test_distinct_actions_reconcile(self):
         # Three actions serve both lists; the README explains the arithmetic,
