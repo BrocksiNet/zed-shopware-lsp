@@ -24,8 +24,8 @@ so this small WASM extension is the route.
 - **Fix problems as you type** — unused imports, unresolved services, wrong
   Twig block references, each with the rule name so you can silence it.
 - **Organize imports and apply quick fixes** from the code action menu.
-- **Run Shopware's generators** — scaffolds, Twig overrides, snippet creation,
-  UUID insertion — as Zed tasks, since Zed's code-action menu cannot host them.
+- **Run Shopware's generators** — scaffolds, entity schemas, Twig overrides,
+  snippet creation. Ask the Agent Panel, or run them as Zed tasks.
 - **Give the Agent Panel real tools** — 16 MCP tools over the same index, so
   an agent can look things up instead of guessing.
 - **Run the same checks in CI** — the server has a headless `check` mode, so a
@@ -52,6 +52,10 @@ No PHP, Go or Node needed. The language server is a prebuilt binary the
 extension downloads.
 
 ## Install
+
+Not in Zed's extension registry yet, so it installs from source. Once it is
+published this collapses to searching **Shopware** on the Extensions page,
+and steps 1 and 2 below go away along with the Rust requirement.
 
 **1. Clone it somewhere permanent.**
 
@@ -88,8 +92,16 @@ binary install, and no settings are required.
 ./install-tasks.sh
 ```
 
-One command, once. The tasks then work in every project you open. See
+One command, once, and the tasks work in every project you open. See
 [docs/tasks.md](docs/tasks.md).
+
+This step exists because Zed only lets an extension ship tasks for languages
+it *defines*, and this one defines none — it attaches to PHP, Twig and the
+rest, all owned by other extensions
+([zed#64012](https://github.com/zed-industries/zed/issues/64012)). The
+generators themselves need no setup: they are also MCP tools, so the Agent
+Panel can run them with nothing installed. The tasks are the
+keyboard-and-terminal path to the same thing.
 
 ## Verify it works
 

@@ -1,5 +1,16 @@
 # Generator actions as tasks
 
+> Zed only lets an extension ship tasks for languages it *defines*, and this
+> extension defines none — it attaches to languages other extensions own. So
+> these tasks need one install step rather than arriving with the extension.
+> Tracked upstream as
+> [zed#64012](https://github.com/zed-industries/zed/issues/64012).
+>
+> The generators are also MCP tools, so the Agent Panel reaches them with no
+> setup at all. These tasks are the alternative for people not working through
+> an agent.
+
+
 The generator actions cannot work from Zed's code-action menu. These
 tasks are how you reach them instead.
 
