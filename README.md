@@ -28,6 +28,8 @@ so this small WASM extension is the route.
   UUID insertion — as Zed tasks, since Zed's code-action menu cannot host them.
 - **Give the Agent Panel real tools** — 16 MCP tools over the same index, so
   an agent can look things up instead of guessing.
+- **Run the same checks in CI** — the server has a headless `check` mode, so a
+  job can fail on what the editor would have underlined.
 
 Each of these, with screenshots and the caveats that matter, is in
 **[docs/features.md](docs/features.md)**.
@@ -39,7 +41,9 @@ Each of these, with screenshots and the caveats that matter, is in
 - **Zed** (tested on 1.18).
 - **Rust via rustup**, with the `wasm32-wasip2` target. Zed compiles the
   extension itself, so the toolchain has to be present. If Rust came from
-  Homebrew or Nix rather than rustup, add the target yourself.
+  Homebrew or Nix rather than rustup, add the target yourself. This is only
+  needed because it installs as a dev extension; a published one ships
+  prebuilt.
 - **git**.
 - Optional: **fzf**, which the task scripts use for nicer pickers. Without it
   they fall back to a numbered prompt.
@@ -129,6 +133,37 @@ The language server itself is upstream's:
 completion content, diagnostics or scaffolding belong there; bugs in how Zed
 talks to it belong here.
 
+## Using it in CI
+
+The same binary runs headlessly, so the diagnostics you see while typing can
+also gate a pull request — for a project or for a single plugin:
+
+```bash
+shopware-lsp -root . check -severity warning -fail-on warning src/
+```
+
+It prints `path:line:col: severity: message [rule]` and exits non-zero when
+anything at or above `-fail-on` is reported.
+
+Three things that are easy to get wrong:
+
+- **`-fail-on` alone does nothing** if the severity floor excludes the
+  diagnostics you care about. `-severity` filters first, so `-fail-on hint`
+  reports nothing while the floor is `warning`. Set both.
+- **`check` needs a path.** A bare `check` errors rather than scanning the
+  project; pass `src/`, `custom/plugins/YourPlugin`, or `.`.
+- **Service and parameter diagnostics need Symfony's dev debug container
+  dump.** Without `var/cache/dev*/*DevDebugContainer.xml` every reference
+  looks unresolvable, so a job that wants those has to warm the cache first.
+  Everything else works on a bare checkout.
+
+`update-server.sh` here installs the binary on macOS and Linux from Open VSX,
+which is one way to get it onto a runner.
+
+This is upstream's CLI rather than something this extension adds, so the full
+command set, output formats and any behaviour you want changed live in
+[shopware/shopware-lsp](https://github.com/shopware/shopware-lsp).
+
 ## Documentation
 
 | | |
@@ -145,17 +180,28 @@ talks to it belong here.
 
 ## Updating and removing
 
+This is not in Zed's extension registry yet, so it installs as a dev
+extension and updates by hand:
+
 ```bash
-cd ~/Documents/Projects/zed-shopware-lsp && git pull
+cd /path/to/zed-shopware-lsp && git pull
 ```
 
-Then re-run `zed: install dev extension` on the same folder to rebuild it. If
-you installed the tasks, re-run `./install-tasks.sh` only when the task list
-itself changed — the tasks point at the script in this checkout, so a pull
-updates them everywhere on its own.
+Then re-run `zed: install dev extension` on the same folder. Zed only
+recompiles when you ask it to, so a pull on its own changes nothing.
 
-To remove it, uninstall **Shopware LSP** from the Extensions page. The
-downloaded server lives in the extension's work directory and goes with it.
+Tasks are separate. They point at the script inside the checkout, so a pull
+updates them in every project without help; re-run `./install-tasks.sh` only
+when the task list itself changes.
+
+To remove the extension, uninstall **Shopware LSP** from the Extensions page.
+The downloaded server lives in the extension's work directory and goes with
+it. The tasks do not: delete the `Shopware: ...` entries from
+`~/.config/zed/tasks.json`, or the whole file if it holds nothing else.
+
+Once it is published to the registry, most of this goes away — install and
+update from the Extensions page, with Zed handling the build, and no rustup
+requirement.
 
 ## License
 
