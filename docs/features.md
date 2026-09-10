@@ -115,6 +115,12 @@ underneath you.
 have no language id and the server never attaches. Check the status bar reads
 exactly `Twig`.
 
+That extension also ships its own language server, so `.twig` files get two
+and you see the union of what both report. If a Twig diagnostic looks wrong —
+`Unexpected syntax` on a core template, say — it is probably the other one:
+see [Twig syntax errors on core
+templates](troubleshooting.md#twig-syntax-errors-on-core-templates-or-duplicate-twig-diagnostics).
+
 ## Snippets
 
 Shopware's XML config snippets, ported from the VS Code extension.

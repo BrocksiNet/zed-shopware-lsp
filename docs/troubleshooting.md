@@ -93,13 +93,56 @@ hashed directory name is fine. Repeat after changing service definitions.
 ## Code actions and completions appear twice
 
 Two PHP language servers. See
-[Running alongside another PHP server](#running-alongside-another-php-server).
+[Running alongside another PHP server](internals.md#running-alongside-another-php-server).
 
 ## Nothing happens in `.twig` files
 
 Install the **Twig** extension from Zed's registry. Without it those files have
 no language id and the server is never attached. The **Dockerfile** extension
 is optional and enables env-var hover in Dockerfiles.
+
+## Twig syntax errors on core templates, or duplicate Twig diagnostics
+
+Not this extension. Zed's **Twig** extension ships its own language server,
+`twiggy-language-server`, so `.twig` files have two servers attached and you
+see the union of what both report.
+
+The tell is the source suffix. Diagnostics from here are tagged, for example
+`Route 'x' not found (symfony symfony.route.missing)`. Twiggy's carry no
+source, so a bare `Unexpected syntax` is not ours.
+
+Twiggy's Twig grammar lags the language. `===`, valid since Twig 3 as the
+alias for `same as`, is not in its parser, so it reports `Unexpected syntax`
+on templates that render fine — including core ones such as
+`storefront/page/product-detail/meta.html.twig`.
+
+Confirm which server produced a diagnostic by asking this one directly. It
+takes the editor out of the loop:
+
+```bash
+shopware-lsp -root . check -severity hint path/to/template.html.twig
+```
+
+Anything the CLI does not report came from the other server.
+
+To silence twiggy while keeping the Twig extension — which you still need,
+since it provides the language and grammar without which nothing attaches to
+`.twig` at all:
+
+```json
+{
+  "languages": {
+    "Twig": {
+      "language_servers": ["shopware-lsp", "!twiggy-language-server"]
+    }
+  }
+}
+```
+
+That trades twiggy's general Twig intelligence for silence. In a Shopware
+project this extension already covers templates, blocks, filters and
+functions, so the loss is small; outside one, twiggy is the only Twig server
+you have.
 
 ## Snippets or new behaviour missing after a `git pull`
 

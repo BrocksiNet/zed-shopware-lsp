@@ -79,7 +79,10 @@ compiles it; the first build takes about half a minute.
 **3. Install the Twig extension.**
 
 From Zed's Extensions page, search `Twig` and install it. Without it, `.twig`
-files get no language id and the server never attaches to them.
+files get no language id and the server never attaches to them. It also brings
+its own Twig language server, which reports separately from this one — see
+[troubleshooting](docs/troubleshooting.md#twig-syntax-errors-on-core-templates-or-duplicate-twig-diagnostics)
+if a Twig diagnostic looks wrong.
 
 **4. Open a Shopware project.**
 
