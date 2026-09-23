@@ -425,6 +425,51 @@ fn download_present(path: &str) -> bool {
             .unwrap_or(false)
 }
 
+/// A file can survive a failed extraction or permission setup. Only the marker
+/// written after both succeed makes a managed installation reusable. Host calls
+/// are injected so recovery can be exercised without a Zed runtime.
+fn prepare_download(
+    directory: &str,
+    binary: &str,
+    download: impl FnOnce() -> Result<()>,
+    make_executable: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let ready = format!("{directory}/.ready");
+    if download_present(&ready) && download_present(binary) {
+        // WASI cannot reliably inspect native executable bits. Reapply them
+        // through the host even when reusing an installation.
+        return make_executable();
+    }
+
+    remove_incomplete_download(directory)?;
+    let result = (|| {
+        download()?;
+        if !download_present(binary) {
+            return Err(format!("download did not contain {binary}"));
+        }
+        make_executable()?;
+        fs::write(&ready, b"ready\n")
+            .map_err(|err| format!("failed to mark {directory} as ready: {err}"))
+    })();
+
+    if let Err(err) = result {
+        remove_incomplete_download(directory).map_err(|cleanup| format!("{err}; {cleanup}"))?;
+        return Err(err);
+    }
+    Ok(())
+}
+
+/// Only called for the exact managed version directory being installed.
+fn remove_incomplete_download(directory: &str) -> Result<()> {
+    match fs::remove_dir_all(directory) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!(
+            "failed to remove incomplete download {directory}: {err}"
+        )),
+    }
+}
+
 /// Whether a work-dir entry is an older managed download.
 ///
 /// Deliberately requires the `shopware-lsp-` prefix rather than `shopware-lsp`,
@@ -455,6 +500,7 @@ impl ShopwareLspExtension {
     /// installation status is a language-server-only concept in Zed.
     fn download_server(&mut self, status_id: Option<&LanguageServerId>) -> Result<String> {
         if let Some(path) = self.cached_download.clone().filter(|p| download_present(p)) {
+            zed::make_file_executable(&path)?;
             return Ok(path);
         }
 
@@ -470,21 +516,23 @@ impl ShopwareLspExtension {
 
         let (version_dir, binary) = download_layout(&version, target, zed::current_platform().0);
 
-        if !download_present(&binary) {
-            if let Some(id) = status_id {
-                zed::set_language_server_installation_status(
-                    id,
-                    &LanguageServerInstallationStatus::Downloading,
-                );
-            }
-
-            zed::download_file(&url, &version_dir, DownloadedFileType::Zip).map_err(|err| {
-                format!("failed to download {SERVER_NAME} {version} for {target}: {err}")
-            })?;
-            zed::make_file_executable(&binary)?;
-
-            Self::remove_other_versions(&version_dir);
-        }
+        prepare_download(
+            &version_dir,
+            &binary,
+            || {
+                if let Some(id) = status_id {
+                    zed::set_language_server_installation_status(
+                        id,
+                        &LanguageServerInstallationStatus::Downloading,
+                    );
+                }
+                zed::download_file(&url, &version_dir, DownloadedFileType::Zip).map_err(|err| {
+                    format!("failed to download {SERVER_NAME} {version} for {target}: {err}")
+                })
+            },
+            || zed::make_file_executable(&binary),
+        )?;
+        Self::remove_other_versions(&version_dir);
 
         if let Some(id) = status_id {
             zed::set_language_server_installation_status(
@@ -1216,6 +1264,179 @@ mod tests {
         assert!(download_present(
             std::env::current_exe().unwrap().to_str().unwrap()
         ));
+    }
+
+    struct DownloadFixture {
+        root: std::path::PathBuf,
+        directory: String,
+        binary: String,
+    }
+
+    impl DownloadFixture {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "zed-shopware-download-{}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            ));
+            fs::create_dir(&root).unwrap();
+            let directory = root.join("shopware-lsp-0.3.60-darwin-arm64");
+            let binary = directory.join("extension/shopware-lsp");
+            Self {
+                root,
+                directory: directory.to_str().unwrap().into(),
+                binary: binary.to_str().unwrap().into(),
+            }
+        }
+
+        fn extract(&self) -> Result<()> {
+            fs::create_dir_all(std::path::Path::new(&self.binary).parent().unwrap()).unwrap();
+            fs::write(&self.binary, b"server").unwrap();
+            Ok(())
+        }
+
+        fn ready(&self) -> bool {
+            download_present(&format!("{}/.ready", self.directory))
+        }
+    }
+
+    impl Drop for DownloadFixture {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+
+    #[test]
+    fn failed_extraction_and_permissions_are_cleaned_up_and_retryable() {
+        for fail_extraction in [true, false] {
+            let fixture = DownloadFixture::new();
+            let neighbour = fixture.root.join("unrelated.txt");
+            fs::write(&neighbour, b"keep").unwrap();
+            let error = prepare_download(
+                &fixture.directory,
+                &fixture.binary,
+                || {
+                    fixture.extract()?;
+                    if fail_extraction {
+                        Err("extraction failed".into())
+                    } else {
+                        Ok(())
+                    }
+                },
+                || Err("permissions failed".into()),
+            )
+            .unwrap_err();
+            assert_eq!(
+                error,
+                if fail_extraction {
+                    "extraction failed"
+                } else {
+                    "permissions failed"
+                }
+            );
+            assert!(!std::path::Path::new(&fixture.directory).exists());
+            assert_eq!(fs::read(&neighbour).unwrap(), b"keep");
+
+            prepare_download(
+                &fixture.directory,
+                &fixture.binary,
+                || fixture.extract(),
+                || Ok(()),
+            )
+            .unwrap();
+            assert!(fixture.ready());
+            assert!(download_present(&fixture.binary));
+        }
+    }
+
+    #[test]
+    fn incomplete_or_legacy_installations_are_replaced_before_reuse() {
+        let fixture = DownloadFixture::new();
+        fixture.extract().unwrap();
+        let leftover = format!("{}/partial", fixture.directory);
+        fs::write(&leftover, b"incomplete archive").unwrap();
+        prepare_download(
+            &fixture.directory,
+            &fixture.binary,
+            || {
+                assert!(!std::path::Path::new(&fixture.directory).exists());
+                fixture.extract()
+            },
+            || {
+                assert!(
+                    !fixture.ready(),
+                    "do not mark ready before permissions succeed"
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(fixture.ready());
+        assert!(!std::path::Path::new(&leftover).exists());
+    }
+
+    #[test]
+    fn ready_downloads_reapply_permissions_without_downloading() {
+        let fixture = DownloadFixture::new();
+        prepare_download(
+            &fixture.directory,
+            &fixture.binary,
+            || fixture.extract(),
+            || Ok(()),
+        )
+        .unwrap();
+        let mut repaired = false;
+        prepare_download(
+            &fixture.directory,
+            &fixture.binary,
+            || panic!("a complete download should be reused"),
+            || {
+                repaired = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(repaired);
+
+        let error = prepare_download(
+            &fixture.directory,
+            &fixture.binary,
+            || panic!("a permission error does not require downloading"),
+            || Err("cannot set permissions".into()),
+        )
+        .unwrap_err();
+        assert_eq!(error, "cannot set permissions");
+    }
+
+    #[test]
+    fn missing_binary_is_never_marked_ready_and_invalidates_a_ready_download() {
+        let fixture = DownloadFixture::new();
+        prepare_download(
+            &fixture.directory,
+            &fixture.binary,
+            || fixture.extract(),
+            || Ok(()),
+        )
+        .unwrap();
+        fs::remove_file(&fixture.binary).unwrap();
+        let error = prepare_download(
+            &fixture.directory,
+            &fixture.binary,
+            || {
+                fs::create_dir_all(&fixture.directory).unwrap();
+                Ok(())
+            },
+            || panic!("cannot set permissions on a missing binary"),
+        )
+        .unwrap_err();
+        assert!(error.contains("download did not contain"));
+        assert!(!fixture.ready());
+        assert!(!std::path::Path::new(&fixture.directory).exists());
     }
 
     #[test]
