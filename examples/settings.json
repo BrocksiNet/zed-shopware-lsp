@@ -35,12 +35,14 @@
 
       // To force a specific binary for the Agent Panel -- a local build, say,
       // since the extension sandbox has no PATH and sees only its own work
-      // directory -- uncomment this. "args" is mandatory: Zed treats a present
+      // directory -- replace the "settings" entry above with the complete
+      // "command" object below. "args" is mandatory: Zed treats a present
       // "command" as a complete custom-server definition and never calls the
       // extension, so the binary is spawned bare, which is a language server
       // being asked to speak MCP. It fails with a 30 second timeout and no
       // useful error. "mcp" must come last. Doing this also makes the "root"
-      // setting above dead config, hence -root here.
+      // setting above dead config, hence -root here. The extension's settings
+      // schema cannot validate "command", because Zed handles it directly.
       //
       // "command": {
       //   "path": "/Users/you/.local/bin/shopware-lsp",

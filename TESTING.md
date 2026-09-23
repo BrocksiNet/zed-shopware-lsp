@@ -25,9 +25,13 @@ Covered today:
 | `parse_latest_release` | Payload shape, and that each failure says which field was missing. |
 | `mcp_args` | Argument order. `mcp -root x` is rejected by the binary; only `-root x mcp` works. |
 | `is_superseded_download` | Pruning deletes 31 MB directories. It must not match a binary someone dropped in the work dir. |
+| `prepare_download` | Injected download/permission operations exercise failed extraction, permission failure, cleanup, retry, missing binaries, legacy cache replacement, and permission repair on reuse. |
 
 These were mutation-checked: breaking the linux-x64 mapping, reversing the MCP
 argument order, and loosening the prune prefix each fail exactly one test.
+Download recovery was also mutation-checked: skipping failure cleanup, reusing a
+binary without its ready marker, skipping permission repair, and trusting a
+marker without its binary each fail the corresponding regression test.
 
 ### Coverage
 
@@ -273,6 +277,14 @@ server. Re-run `zed: install dev extension` first.
       client for this check. Each thread spawns its own server, each with its
       own index and no sharing: eight of them on a shopware/shopware checkout
       measured 2.0 GB resident in total, several at 300-400 MB each.
+- [ ] After rebuilding the extension, Zed's MCP setup UI explains the complete
+      custom `command` object and warns that its settings schema cannot validate
+      it. Copy the example with real paths into project settings and confirm MCP
+      initializes; `settings.root` must be absent for this custom-command check.
+- [ ] With managed downloads enabled, an installation without `.ready` is
+      downloaded again once. After successful installation, restart Zed and
+      confirm it reuses that version. On macOS/Linux, remove the executable bit
+      from the managed binary and restart its server; Zed should restore it.
 - [x] The Agent Panel and the editor agree on the binary. `ps | grep shopware-lsp`
       should show both the language server and the `mcp` process on the same
       path. They diverged once, with the editor on `PATH` and the agent on the

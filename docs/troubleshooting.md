@@ -20,17 +20,48 @@ Check whether the branch is ahead of what you are running:
 
 Then point Zed at it, in `settings.json`:
 
-```jsonc
-"lsp": { "shopware-lsp": { "binary": { "path": "/Users/you/.local/bin/shopware-lsp" } } },
-"context_servers": { "shopware-lsp": { "command": "/Users/you/.local/bin/shopware-lsp" } }
+```json
+{
+  "lsp": {
+    "shopware-lsp": {
+      "binary": { "path": "/Users/you/.local/bin/shopware-lsp" }
+    }
+  },
+  "context_servers": {
+    "shopware-lsp": {
+      "command": {
+        "path": "/Users/you/.local/bin/shopware-lsp",
+        "args": ["-root", "/path/to/shopware", "mcp"]
+      }
+    }
+  }
+}
 ```
 
-Set both. With only the first, the Agent Panel keeps answering from the
-downloaded build and quietly disagrees with the editor.
+Replace both paths and set both entries. With only the first, opening the Agent
+Panel before the language server starts can leave it on a different build.
+Always include `args`: a custom `command` bypasses the extension, and a bare
+binary starts LSP instead of MCP. It then times out during the MCP handshake.
+`settings.root` is ignored with a custom command; pass `-root` before `mcp`.
 
-Releases land every few days, so treat this as temporary. Delete the `binary`
-block afterwards: the extension re-checks Open VSX each session and prunes the
-old download, so it upgrades on the next Zed start without help.
+Releases land every few days, so treat this as temporary. Remove both overrides
+afterwards and move the local binary off `PATH` if you want managed updates:
+even without `binary.path`, a local `shopware-lsp` takes priority over downloads.
+Restart Zed to resolve the server again.
+
+## MCP initialization times out after setting a custom command
+
+Use the complete `command` object above, with `path` and `args`. The extension's
+settings schema only validates `settings`; it cannot validate or repair the
+sibling `command` that Zed executes directly. See [Agent Panel configuration](agent-panel.md).
+
+## Download or executable-permission setup fails
+
+Incomplete managed installations are removed so a retry downloads a clean copy.
+Only installations with a `.ready` marker written after extraction and permission
+setup are reused; older installations without this marker are downloaded once
+again. Executable permissions are reapplied by Zed before reuse. Restart the
+language server or context server to retry after resolving the reported error.
 
 ## "failed to spawn command ... No such file or directory (os error 2)"
 

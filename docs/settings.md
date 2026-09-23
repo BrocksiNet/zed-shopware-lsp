@@ -75,8 +75,8 @@ None are required. `examples/settings.json` has these ready to merge.
 | `lsp.shopware-lsp.binary.path` | Pin the language server binary. Taken as given; the extension cannot verify it exists |
 | `lsp.shopware-lsp.binary.arguments` | Extra arguments for the language server |
 | `lsp.shopware-lsp.initialization_options` | Deep-merged over the defaults, so you can override one key. Use `shopwareClient.supportedCommands` to change code-lens filtering |
-| `context_servers.shopware-lsp.command.path` | Pin the **MCP** binary. Optional: without it the extension downloads its own copy, same as for the language server. Set it only to force a specific build, and note it has to be set here as well as under `lsp`, since the MCP hook has no `PATH` and no `Worktree::which` to inherit one |
-| `context_servers.shopware-lsp.settings.root` | Project root for the MCP server, for multi-root workspaces |
+| `context_servers.shopware-lsp.command` | Optional complete override: an object with `path` and `args: ["-root", "/path/to/shopware", "mcp"]`. Zed bypasses the extension, including its schema and configuration carry-over. A bare path starts LSP and times out under MCP. See the [complete example](agent-panel.md). |
+| `context_servers.shopware-lsp.settings.root` | Project root for the extension-managed MCP server, for multi-root workspaces. Ignored when `command` is present. |
 | `languages.PHP.language_servers` | Pick one PHP server. See below |
 | `languages.PHP.formatter` | `{"code_action": "source.organizeImports"}` to organize imports on save |
 | `lsp.yaml-language-server.settings.yaml.schemas` | Validate `.config/shopware/lsp.yaml` against the server's schema |

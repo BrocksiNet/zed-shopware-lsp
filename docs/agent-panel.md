@@ -53,6 +53,11 @@ For the same reason, `command` and the `root` setting below are mutually
 exclusive: pinning `command` makes `settings.root` dead config, and the root
 has to be passed as `-root` in `args`.
 
+The extension's settings schema validates only `settings`, not the sibling
+`command`; it cannot catch missing arguments. A custom command also bypasses
+the editor-configuration and memory-limit carry-over. Put shared configuration
+in `.config/shopware/lsp.yaml`, or supply the appropriate environment explicitly.
+
 `shopware-lsp mcp` refuses to start outside a Shopware or Symfony project, and
 Zed's `Project` handle exposes worktree IDs but no paths, so the root is taken
 from the `root` setting first, then from whatever the language server last

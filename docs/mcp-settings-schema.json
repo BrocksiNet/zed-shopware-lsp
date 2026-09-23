@@ -1,10 +1,11 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
+  "description": "Settings for the extension-managed Shopware MCP server. A custom context_servers.shopware-lsp.command bypasses these settings and this schema: provide a complete command object with path and args, for example {\"path\":\"/absolute/path/shopware-lsp\",\"args\":[\"-root\",\"/path/to/shopware\",\"mcp\"]}.",
   "properties": {
     "root": {
       "type": "string",
-      "description": "Absolute path to the Shopware or Symfony project root. Defaults to the root reported by the language server, then to the working directory."
+      "description": "Absolute path to the Shopware or Symfony project root. Defaults to the root reported by the language server, then to the working directory. Ignored when a custom command is configured; pass -root before mcp in command.args instead."
     }
   },
   "additionalProperties": false
