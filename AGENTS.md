@@ -39,6 +39,18 @@ impossible here.
   `codeAction/resolve` when it can. Zed declares `publish_diagnostics.
   data_support` and `code_action.data_support`, so it takes the resolve path.
   Strip that `data` and the quickfix disappears from the response entirely.
+  On servers with shopware/shopware-lsp#120, Zed gets its diagnostics by
+  pull rather than push, so the `data` arrives in the `textDocument/diagnostic`
+  report instead.
+- **The server delivers diagnostics one way per client, by push or by pull.**
+  It advertises `diagnosticProvider` only when the client declares
+  `textDocument.diagnostic`, and then stops pushing. Zed declares it unless
+  `diagnostics.lsp_pull_diagnostics.enabled` is off. Servers up to 0.3.60 did
+  both, and Zed showed every diagnostic twice
+  (shopware/shopware-lsp#117). Anything that takes a capability inventory
+  has to declare pull, or `diagnosticProvider` drops out of the surface;
+  `inventory.py` does. The contract check asserts the negotiation, with an
+  `--expect-fail` in both workflows until a release carries the fix.
 - **The ~20 generator actions cannot be code actions in Zed**, and the server
   is told so. They carry a `command` naming a client-side `shopware.*` command
   which only the VS Code extension implements, because the flow is

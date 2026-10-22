@@ -15,6 +15,7 @@ cannot go green by blanket-ignoring this script.
 """
 
 import argparse
+import http.client
 import json
 import os
 import shutil
@@ -56,7 +57,7 @@ def check_open_vsx_payloads():
     for target in TARGETS:
         try:
             payload = get_json(f"{API}/{target}/latest")
-        except Exception as err:
+        except (OSError, ValueError, http.client.HTTPException) as err:
             check(f"{target} resolves", False, str(err)[:80])
             continue
         version = payload.get("version")
@@ -124,6 +125,7 @@ def check_project_detection(binary, root):
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
     check(
         ".config/shopware/lsp.yaml is accepted as a project marker",
@@ -132,9 +134,22 @@ def check_project_detection(binary, root):
     )
 
 
-def check_lsp_handshake(binary, root):
-    """No subcommand must start a stdio LSP, and the legend must be an array."""
-    print("\nLSP handshake")
+def pipes(process):
+    """stdin and stdout of a process started with PIPE for both.
+
+    Popen always sets them then. The stubs declare them Optional because
+    they are None otherwise, so this narrows them once instead of per use.
+    """
+    assert process.stdin is not None and process.stdout is not None
+    return process.stdin, process.stdout
+
+
+def lsp_initialize(binary, root, capabilities, initialization_options=None):
+    """The `initialize` response of a fresh stdio server, or None.
+
+    None means the server never answered, which includes a binary that
+    does not speak LSP when started without a subcommand.
+    """
     process = subprocess.Popen(
         [binary],
         cwd=root,
@@ -142,41 +157,51 @@ def check_lsp_handshake(binary, root):
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )
-    request = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "processId": os.getpid(),
-            "rootUri": "file://" + root,
-            "workspaceFolders": [{"uri": "file://" + root, "name": "fixture"}],
-            "capabilities": {
-                "textDocument": {
-                    "semanticTokens": {
-                        "requests": {"range": True, "full": {"delta": True}},
-                        "tokenTypes": ["keyword"],
-                        "tokenModifiers": ["static"],
-                        "formats": ["relative"],
-                    }
-                }
-            },
-        },
+    stdin, stdout = pipes(process)
+    params = {
+        "processId": os.getpid(),
+        "rootUri": "file://" + root,
+        "workspaceFolders": [{"uri": "file://" + root, "name": "fixture"}],
+        "capabilities": capabilities,
     }
-    body = json.dumps(request).encode()
-    process.stdin.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
-    process.stdin.flush()
+    if initialization_options is not None:
+        params["initializationOptions"] = initialization_options
+    body = json.dumps(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": params}
+    ).encode()
+    try:
+        stdin.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
+        stdin.flush()
+        for _ in range(12):
+            message = read_lsp_message(stdout)
+            if message is None:
+                return None
+            if message.get("id") == 1:
+                return message
+        return None
+    finally:
+        process.kill()
 
-    response = None
-    for _ in range(12):
-        message = read_lsp_message(process.stdout)
-        if message is None:
-            break
-        if message.get("id") == 1:
-            response = message
-            break
-    process.kill()
 
-    if not check("bare invocation speaks stdio LSP", response is not None):
+def check_lsp_handshake(binary, root):
+    """No subcommand must start a stdio LSP, and the legend must be an array."""
+    print("\nLSP handshake")
+    response = lsp_initialize(
+        binary,
+        root,
+        {
+            "textDocument": {
+                "semanticTokens": {
+                    "requests": {"range": True, "full": {"delta": True}},
+                    "tokenTypes": ["keyword"],
+                    "tokenModifiers": ["static"],
+                    "formats": ["relative"],
+                }
+            }
+        },
+    )
+    check("bare invocation speaks stdio LSP", response is not None)
+    if response is None:
         return
 
     provider = response["result"]["capabilities"].get("semanticTokensProvider")
@@ -197,54 +222,29 @@ def check_client_negotiation(binary, root):
     version the extension hardcodes has to stay pinned to the server's.
     """
     print("\nclient negotiation")
-    process = subprocess.Popen(
-        [binary],
-        cwd=root,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
-    request = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "processId": os.getpid(),
-            "rootUri": "file://" + root,
-            "workspaceFolders": [{"uri": "file://" + root, "name": "fixture"}],
-            "capabilities": {},
-            "initializationOptions": {
-                "shopwareClient": {
-                    "protocolVersion": 1,
-                    "presentationProfile": "full",
-                    "supportedCommands": [],
-                }
-            },
+    response = lsp_initialize(
+        binary,
+        root,
+        {},
+        {
+            "shopwareClient": {
+                "protocolVersion": 1,
+                "presentationProfile": "full",
+                "supportedCommands": [],
+            }
         },
-    }
-    body = json.dumps(request).encode()
-    process.stdin.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
-    process.stdin.flush()
-
-    response = None
-    for _ in range(12):
-        message = read_lsp_message(process.stdout)
-        if message is None:
-            break
-        if message.get("id") == 1:
-            response = message
-            break
-    process.kill()
-
-    if not check("initialize accepts protocolVersion 1", bool(response and "result" in response),
-                 "a mismatch means the extension must bump CLIENT_PROTOCOL_VERSION"):
+    )
+    result = (response or {}).get("result")
+    check(
+        "initialize accepts protocolVersion 1",
+        result is not None,
+        "a mismatch means the extension must bump CLIENT_PROTOCOL_VERSION",
+    )
+    if result is None:
         return
 
     state = (
-        response["result"]
-        .get("capabilities", {})
-        .get("experimental", {})
-        .get("shopwareLSP", {})
+        result.get("capabilities", {}).get("experimental", {}).get("shopwareLSP", {})
     )
     check("negotiation is active", state.get("active") is True, json.dumps(state)[:90])
     check(
@@ -254,10 +254,60 @@ def check_client_negotiation(binary, root):
     )
 
 
+def initialize_capabilities(binary, root, client_capabilities):
+    """Server capabilities answered to `client_capabilities`, or None."""
+    result = (lsp_initialize(binary, root, client_capabilities) or {}).get("result")
+    return None if result is None else result.get("capabilities", {})
+
+
+def check_diagnostic_delivery(binary, root):
+    """One delivery model per client, or Zed shows every diagnostic twice.
+
+    Zed declares both push and pull support and keeps the two result sets
+    apart. A server that advertises `diagnosticProvider` and also pushes
+    therefore duplicates every finding (shopware/shopware-lsp#117). The fix
+    advertises pull only to clients that declare `textDocument.diagnostic`
+    and stops pushing to them. Advertisement is the part visible without
+    opening a document, and it is the switch the server uses for both.
+    """
+    print("\ndiagnostic delivery")
+    pull = initialize_capabilities(
+        binary,
+        root,
+        {
+            "textDocument": {"publishDiagnostics": {}, "diagnostic": {}},
+            "workspace": {"diagnostics": {"refreshSupport": True}},
+        },
+    )
+    check("initialize answers a pull-capable client", pull is not None)
+    if pull is None:
+        return
+    check(
+        "pull-capable client is offered diagnosticProvider",
+        "diagnosticProvider" in pull,
+        "Zed pulls by default; without it Zed relies on push alone",
+    )
+    push = initialize_capabilities(
+        binary, root, {"textDocument": {"publishDiagnostics": {}}}
+    )
+    check("initialize answers a push-only client", push is not None)
+    if push is None:
+        return
+    check(
+        "push-only client is not offered diagnosticProvider",
+        "diagnosticProvider" not in push,
+        "advertising regardless means pull clients also get pushes (#117)",
+    )
+
+
 def check_mcp(binary, root):
     print("\nMCP server")
     rejected = subprocess.run(
-        [binary, "mcp", "-root", root], capture_output=True, text=True, timeout=120
+        [binary, "mcp", "-root", root],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
     )
     check(
         "global flags must precede the subcommand",
@@ -272,10 +322,11 @@ def check_mcp(binary, root):
         stderr=subprocess.DEVNULL,
         bufsize=0,
     )
+    stdin, stdout = pipes(process)
 
     def send(message):
-        process.stdin.write((json.dumps(message) + "\n").encode())
-        process.stdin.flush()
+        stdin.write((json.dumps(message) + "\n").encode())
+        stdin.flush()
 
     send(
         {
@@ -294,7 +345,7 @@ def check_mcp(binary, root):
 
     seen = {}
     for _ in range(80):
-        line = process.stdout.readline()
+        line = stdout.readline()
         if not line:
             break
         line = line.strip()
@@ -339,7 +390,7 @@ def check_mcp(binary, root):
     )
     answer = None
     for _ in range(80):
-        line = process.stdout.readline()
+        line = stdout.readline()
         if not line:
             break
         line = line.strip()
@@ -353,12 +404,12 @@ def check_mcp(binary, root):
             answer = message
             break
 
-    if not check("tools/call returns a result", bool(answer and "result" in answer)):
+    result = (answer or {}).get("result")
+    check("tools/call returns a result", result is not None)
+    if result is None:
         process.kill()
         return
-    payload = "".join(
-        part.get("text", "") for part in answer["result"].get("content", [])
-    )
+    payload = "".join(part.get("text", "") for part in result.get("content", []))
     check(
         "the answer is indexed project data",
         "ContractProbe" in payload,
@@ -442,6 +493,7 @@ def main():
             check_project_detection(args.binary, root)
             check_lsp_handshake(args.binary, root)
             check_client_negotiation(args.binary, root)
+            check_diagnostic_delivery(args.binary, root)
             check_mcp(args.binary, root)
 
     print()

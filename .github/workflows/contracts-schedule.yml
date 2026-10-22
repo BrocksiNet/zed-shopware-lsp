@@ -21,7 +21,11 @@ jobs:
           unzip -q server.vsix -d server
           chmod +x server/extension/shopware-lsp
 
-      - run: python3 scripts/contract-check.py --binary "$PWD/server/extension/shopware-lsp"
+      # The #117 fix (one diagnostic delivery model per client) is merged
+      # upstream but not in 0.3.60. Drop this once the run prints NOTE for it.
+      - run: |
+          python3 scripts/contract-check.py --binary "$PWD/server/extension/shopware-lsp" \
+            --expect-fail "push-only client is not offered diagnosticProvider"
 
       - name: Minimal project fixture
         run: |

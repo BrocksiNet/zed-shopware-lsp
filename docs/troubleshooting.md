@@ -121,6 +121,26 @@ docker compose exec -T web cat "$D/Shopware_Core_KernelDevDebugContainer.xml" \
 Roughly 3 MB. `var/` is gitignored, and the server's glob is `dev*`, so the
 hashed directory name is fine. Repeat after changing service definitions.
 
+## Every diagnostic appears twice, in every file type
+
+The server sends each diagnostic both ways. Zed supports pushed and pulled
+diagnostics and keeps the two sets apart, so it shows both. Servers up to
+0.3.60 always advertised pull support and also pushed to every client
+([shopware/shopware-lsp#117](https://github.com/shopware/shopware-lsp/issues/117)).
+The fix, [#120](https://github.com/shopware/shopware-lsp/pull/120), picks one
+model per client: pull for clients that declare it, which Zed does by default,
+and push for the rest. Until a release carries it, build `main` as described in
+[Diagnostics that are plainly wrong](#diagnostics-that-are-plainly-wrong-on-code-that-is-fine).
+
+Setting `diagnostics.lsp_pull_diagnostics.enabled` to `false` in Zed also
+hides the duplicates on an old server, since Zed then stops pulling. It does
+so for every language server, though, so treat it as a stopgap. The fixed
+server works either way: it pushes to a Zed with pulling off.
+
+The duplicate has the same rule name and source as the original. If one of the
+two is tagged differently, or has no source at all, it came from a second
+server; see the Twig section below.
+
 ## Code actions and completions appear twice
 
 Two PHP language servers. See

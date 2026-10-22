@@ -107,11 +107,23 @@ def execute(binary, root, method, payload=None):
     args = [binary, "-root", root, "execute", method]
     if payload is not None:
         args.append(json.dumps(payload))
-    result = subprocess.run(args, capture_output=True, text=True, timeout=300)
+    result = subprocess.run(
+        args, capture_output=True, text=True, timeout=300, check=False
+    )
     output = (result.stdout or "").strip()
     if result.returncode != 0 or not output:
         sys.exit(f"{method} failed: {(result.stderr or result.stdout).strip()[:300]}")
     return json.loads(output)
+
+
+def pipes(process):
+    """stdin and stdout of a process started with PIPE for both.
+
+    Popen always sets them then. The stubs declare them Optional because
+    they are None otherwise, so this narrows them once instead of per use.
+    """
+    assert process.stdin is not None and process.stdout is not None
+    return process.stdin, process.stdout
 
 
 def read_lsp_message(stream):
@@ -152,7 +164,14 @@ def initialize(binary, root):
                         "resolveSupport": {"properties": ["edit"]},
                     },
                     "publishDiagnostics": {"dataSupport": True},
-                }
+                    # Zed declares pull diagnostics by default
+                    # (`diagnostics.lsp_pull_diagnostics.enabled`). The server
+                    # advertises `diagnosticProvider` only to clients that do,
+                    # so leaving this out drops it from the surface
+                    # (shopware/shopware-lsp#117).
+                    "diagnostic": {},
+                },
+                "workspace": {"diagnostics": {"refreshSupport": True}},
             },
             "initializationOptions": {
                 "shopwareClient": {
@@ -164,11 +183,12 @@ def initialize(binary, root):
         },
     }
     body = json.dumps(request).encode()
-    process.stdin.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
-    process.stdin.flush()
+    stdin, stdout = pipes(process)
+    stdin.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
+    stdin.flush()
     response = None
     for _ in range(12):
-        message = read_lsp_message(process.stdout)
+        message = read_lsp_message(stdout)
         if message is None:
             break
         if message.get("id") == 1:
@@ -189,9 +209,11 @@ def mcp_tools(binary, root):
         bufsize=0,
     )
 
+    stdin, stdout = pipes(process)
+
     def send(message):
-        process.stdin.write((json.dumps(message) + "\n").encode())
-        process.stdin.flush()
+        stdin.write((json.dumps(message) + "\n").encode())
+        stdin.flush()
 
     send(
         {
@@ -210,7 +232,7 @@ def mcp_tools(binary, root):
 
     tools = []
     for _ in range(80):
-        line = process.stdout.readline()
+        line = stdout.readline()
         if not line:
             break
         line = line.strip()
@@ -284,12 +306,20 @@ def collect(binary, root, extension_dir=None):
     catalog = execute(binary, root, "shopware/integration/catalog", {})
     config = json.loads(
         subprocess.run(
-            [binary, "-root", root, "config"], capture_output=True, text=True, timeout=300
+            [binary, "-root", root, "config"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=True,
         ).stdout
     )["effective"]
     api = json.loads(
         subprocess.run(
-            [binary, "api-json"], capture_output=True, text=True, timeout=300
+            [binary, "api-json"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=True,
         ).stdout
     )
 
