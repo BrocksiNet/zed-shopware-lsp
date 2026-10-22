@@ -254,6 +254,82 @@ def check_client_negotiation(binary, root):
     )
 
 
+def initialize_capabilities(binary, root, client_capabilities):
+    """Server capabilities answered to `client_capabilities`, or None."""
+    process = subprocess.Popen(
+        [binary],
+        cwd=root,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "processId": os.getpid(),
+            "rootUri": "file://" + root,
+            "workspaceFolders": [{"uri": "file://" + root, "name": "fixture"}],
+            "capabilities": client_capabilities,
+        },
+    }
+    body = json.dumps(request).encode()
+    process.stdin.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
+    process.stdin.flush()
+
+    response = None
+    for _ in range(12):
+        message = read_lsp_message(process.stdout)
+        if message is None:
+            break
+        if message.get("id") == 1:
+            response = message
+            break
+    process.kill()
+    if not response or "result" not in response:
+        return None
+    return response["result"].get("capabilities", {})
+
+
+def check_diagnostic_delivery(binary, root):
+    """One delivery model per client, or Zed shows every diagnostic twice.
+
+    Zed declares both push and pull support and keeps the two result sets
+    apart. A server that advertises `diagnosticProvider` and also pushes
+    therefore duplicates every finding (shopware/shopware-lsp#117). The fix
+    advertises pull only to clients that declare `textDocument.diagnostic`
+    and stops pushing to them. Advertisement is the part visible without
+    opening a document, and it is the switch the server uses for both.
+    """
+    print("\ndiagnostic delivery")
+    pull = initialize_capabilities(
+        binary,
+        root,
+        {
+            "textDocument": {"publishDiagnostics": {}, "diagnostic": {}},
+            "workspace": {"diagnostics": {"refreshSupport": True}},
+        },
+    )
+    if not check("initialize answers a pull-capable client", pull is not None):
+        return
+    check(
+        "pull-capable client is offered diagnosticProvider",
+        "diagnosticProvider" in pull,
+        "Zed pulls by default; without it Zed relies on push alone",
+    )
+    push = initialize_capabilities(
+        binary, root, {"textDocument": {"publishDiagnostics": {}}}
+    )
+    if not check("initialize answers a push-only client", push is not None):
+        return
+    check(
+        "push-only client is not offered diagnosticProvider",
+        "diagnosticProvider" not in push,
+        "advertising regardless means pull clients also get pushes (#117)",
+    )
+
+
 def check_mcp(binary, root):
     print("\nMCP server")
     rejected = subprocess.run(
@@ -442,6 +518,7 @@ def main():
             check_project_detection(args.binary, root)
             check_lsp_handshake(args.binary, root)
             check_client_negotiation(args.binary, root)
+            check_diagnostic_delivery(args.binary, root)
             check_mcp(args.binary, root)
 
     print()

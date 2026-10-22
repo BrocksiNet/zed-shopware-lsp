@@ -161,14 +161,20 @@ Checks:
   Zed from initializing at all
 - `mcp` rejects trailing global flags, so `mcp_args` ordering stays correct
 - `-root ... mcp` speaks MCP and lists `shopware_*` tools
+- `diagnosticProvider` is offered to a client that declares pull diagnostics
+  and withheld from one that does not. Offering it to both is
+  [#117](https://github.com/shopware/shopware-lsp/issues/117): the server also
+  pushes, and Zed shows every diagnostic twice
 
-Needs network and a server binary, so it runs on a **weekly schedule** rather
-than per commit. Every check passes against the published server as of 0.3.53.
+Needs network and a server binary. CI runs it on every pull request against the
+published server, and a weekly schedule catches upstream changes in between.
+Every check except the #117 one passes against 0.3.60.
 
 `--expect-fail NAME` tolerates a named check that is known to fail upstream,
-while still failing the run on anything else. No allowance is currently needed;
-reach for it only when upstream breaks something and you want the rest of the
-suite to keep guarding.
+while still failing the run on anything else. Both workflows currently pass
+`--expect-fail "push-only client is not offered diagnosticProvider"`, because
+the fix merged after 0.3.60. Once a run prints `NOTE ... drop --expect-fail`,
+remove the flag from both workflows.
 
 ## 3. Upstream surface drift, `scripts/inventory.py`
 
@@ -243,6 +249,16 @@ server. Re-run `zed: install dev extension` first.
       just looks dimmer than its neighbours. Hover names the rule
       (`shopware-php php.unusedImport`). Turn on `diagnostics.inline` if that
       is too subtle. Confirmed 2026-09-09.
+- [ ] Each diagnostic appears once. Hover the unused import, or open the
+      project diagnostics panel: one `php.unusedImport` per import, not two.
+      Needs a server with shopware/shopware-lsp#120, which is newer than
+      0.3.60, so build `main` with `build-server.sh` until a release carries it.
+      Then edit the file, for example delete the `use` line, and confirm the
+      diagnostic goes away without saving. With pulled diagnostics, Zed only
+      learns about changes when it pulls again, so a stale entry here means
+      the refresh is not reaching Zed. A scripted client with Zed's
+      capabilities confirmed the protocol side on 2026-10-20: one pull, no
+      push, and the item keeps its `data`.
 - [x] `editor: toggle code actions` on a PHP file offers `Organize Imports`,
       and applying it removes the unused imports. Check the menu holds no
       duplicates while you are there; two entries means a second PHP server is
@@ -253,6 +269,9 @@ server. Re-run `zed: install dev extension` first.
       2026-09-09; the server's `data` carries a `validated-workspace-edit-v1`
       digest, so a silent no-op here shows up as a `codeAction/resolve` error
       in `~/Library/Logs/Zed/Zed.log` rather than a missing menu entry.
+      That confirmation used pushed diagnostics. Servers with
+      shopware/shopware-lsp#120 serve Zed by pull, so the `data` now travels
+      a different path: re-run this step on such a server.
 - [x] Open a `.twig` file with the Twig extension installed and confirm the
       server attaches to it. Check the status bar reads exactly `Twig`:
       `extension.toml` keys on Zed's language *name*, so a different name

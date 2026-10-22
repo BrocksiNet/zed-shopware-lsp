@@ -152,7 +152,14 @@ def initialize(binary, root):
                         "resolveSupport": {"properties": ["edit"]},
                     },
                     "publishDiagnostics": {"dataSupport": True},
-                }
+                    # Zed declares pull diagnostics by default
+                    # (`diagnostics.lsp_pull_diagnostics.enabled`). The server
+                    # advertises `diagnosticProvider` only to clients that do,
+                    # so leaving this out drops it from the surface
+                    # (shopware/shopware-lsp#117).
+                    "diagnostic": {},
+                },
+                "workspace": {"diagnostics": {"refreshSupport": True}},
             },
             "initializationOptions": {
                 "shopwareClient": {
